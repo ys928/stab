@@ -26,10 +26,6 @@ pub async fn run() -> Result<(), Error> {
         *conns = Some(HashMap::new());
     }
 
-    let port_range = G_CFG.get().unwrap().min_port..G_CFG.get().unwrap().max_port;
-    if port_range.is_empty() {
-        panic!("must provide at least one port");
-    }
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().contrl_port);
 
     let control_listener = TcpListener::bind(&addr).await?;
@@ -166,7 +162,7 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
 
 /// create a tcp listener for a port
 async fn create_listener(port: u16) -> Result<TcpListener, Error> {
-    let port_range = G_CFG.get().unwrap().min_port..G_CFG.get().unwrap().max_port;
+    let port_range = &G_CFG.get().unwrap().port_range;
     if port > 0 {
         // Client requests a specific port number.
         if !port_range.contains(&port) {
@@ -179,13 +175,13 @@ async fn create_listener(port: u16) -> Result<TcpListener, Error> {
     let mut port = PORT_IDX.load(Ordering::Relaxed);
     let mut n = 0;
     loop {
-        if port >= G_CFG.get().unwrap().max_port || port < G_CFG.get().unwrap().min_port {
-            port = G_CFG.get().unwrap().min_port;
+        if !port_range.contains(&port) {
+            port = port_range.start;
         }
         n += 1;
 
         if n >= port_range.len() {
-            PORT_IDX.store(G_CFG.get().unwrap().min_port, Ordering::Relaxed);
+            PORT_IDX.store(port_range.start, Ordering::Relaxed);
             return Err(Error::new(ErrorKind::Unsupported, "not find port"));
         }
         let ret = try_bind(port).await;
@@ -200,5 +196,5 @@ async fn create_listener(port: u16) -> Result<TcpListener, Error> {
 
 /// try to bind a port and return TcpListener
 async fn try_bind(port: u16) -> Result<TcpListener, Error> {
-    Ok(TcpListener::bind(("0.0.0.0", port)).await?)
+    TcpListener::bind(("0.0.0.0", port)).await
 }

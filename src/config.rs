@@ -1,6 +1,6 @@
 //! the config file
 
-use std::sync::OnceLock;
+use std::{ops::Range, sync::OnceLock};
 
 use anstyle::{
     AnsiColor::{BrightBlue, BrightCyan, BrightGreen, Green, Red},
@@ -38,29 +38,13 @@ pub struct HoleArgs {
     #[clap(short, long, value_name = "secret")]
     pub secret: Option<String>,
 
-    /// local port to expose.
-    #[clap(short = 'p', value_name = "local mode", long, default_value = "8080")]
-    pub local_port: u16,
+    /// create a link from the local to the server
+    #[clap(short,long,value_name = "local mode",value_parser=parse_link,default_value = "127.0.0.1:8080=>127.0.0.1:0")]
+    pub link: Link,
 
-    /// local host to expose.
-    #[clap(short, long, value_name = "local mode", default_value = "localhost")]
-    pub local_host: String,
-
-    /// address of the remote server.
-    #[clap(long = "to", value_name = "local mode", default_value = "localhost")]
-    pub server: String,
-
-    /// optional port on the remote server to select.
-    #[clap(short, long, value_name = "local mode", default_value_t = 0)]
-    pub remote_port: u16,
-
-    /// minimum accepted TCP port number.
-    #[clap(long = "min", value_name = "server mode", default_value_t = 1024)]
-    pub min_port: u16,
-
-    /// maximum accepted TCP port number.
-    #[clap(long = "max", value_name = "server mode", default_value_t = 65535)]
-    pub max_port: u16,
+    /// accepted TCP port number range
+    #[clap(short, long,value_name = "server mode", value_parser = parse_range,default_value="1024-65535")]
+    pub port_range: Range<u16>,
 }
 /// the run mode
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -72,10 +56,22 @@ pub enum Mode {
     Server,
 }
 
+/// a link between a local port and a server port
+#[derive(Debug, Clone, Default)]
+pub struct Link {
+    /// local host
+    pub local_host: String,
+    /// local port
+    pub local_port: u16,
+    /// server host
+    pub remote_host: String,
+    /// server port
+    pub remote_port: u16,
+}
+
 /// parse config from command line arguments
 pub fn init_config() {
     let mut args = HoleArgs::parse();
-
     // hash secret
     if let Some(secret) = args.secret {
         let hashed_secret = Sha256::new().chain_update(secret).finalize();
@@ -106,7 +102,7 @@ pub fn init_log() {
 }
 
 /// config the style of help info
-pub fn help_styles() -> clap::builder::Styles {
+fn help_styles() -> clap::builder::Styles {
     clap::builder::Styles::styled()
         .usage(Style::new().fg_color(Some(Ansi(BrightBlue))))
         .header(Style::new().fg_color(Some(Ansi(BrightBlue))))
@@ -115,4 +111,82 @@ pub fn help_styles() -> clap::builder::Styles {
         .error(Style::new().bold().fg_color(Some(Ansi(Red))))
         .valid(Style::new().fg_color(Some(Ansi(Green))))
         .placeholder(Style::new().fg_color(Some(Ansi(BrightCyan))))
+}
+
+/// parse port range
+fn parse_range(s: &str) -> Result<Range<u16>, String> {
+    let err_msg = "parse port range failed".to_string();
+
+    let p: Vec<&str> = s.split("-").collect();
+    if p.len() != 2 {
+        return Err(err_msg);
+    }
+    let min = p[0].parse::<u16>();
+    if min.is_err() {
+        return Err(err_msg);
+    }
+    let min = min.unwrap();
+    let max = p[1].parse::<u16>();
+    if max.is_err() {
+        return Err(err_msg);
+    }
+    let max = max.unwrap();
+    if min >= max {
+        return Err(err_msg);
+    }
+    Ok(min..max)
+}
+
+fn parse_link(raw_link: &str) -> Result<Link, String> {
+    let err_msg =
+        "parse link failed,format: 80=>stab.com or localhost:80=>stab.com:8989".to_string();
+
+    let addrs: Vec<&str> = raw_link.split("=>").collect();
+    if addrs.len() != 2 {
+        return Err(err_msg);
+    }
+    let local_addr = addrs[0];
+    let remote_addr = addrs[1];
+
+    let mut link = Link::default();
+    // parse local address
+    let pos = local_addr.find(":");
+    if pos.is_none() {
+        let port = local_addr.parse::<u16>();
+        if port.is_err() {
+            return Err(err_msg);
+        }
+        link.local_host = "127.0.0.1".to_string();
+        link.local_port = port.unwrap();
+    } else {
+        let addr: Vec<&str> = local_addr.split(":").collect();
+        if addr.len() != 2 {
+            return Err(err_msg);
+        }
+        let port = addr[1].parse::<u16>();
+        if port.is_err() {
+            return Err(err_msg);
+        }
+        link.local_host = addr[0].to_string();
+        link.local_port = port.unwrap();
+    }
+    // pares remote address
+    let pos = remote_addr.find(":");
+    if pos.is_none() {
+        link.remote_host = remote_addr.to_string();
+        link.remote_port = 0;
+        return Ok(link);
+    } else {
+        let addr: Vec<&str> = remote_addr.split(":").collect();
+        if addr.len() != 2 {
+            return Err(err_msg);
+        }
+        let port = addr[1].parse::<u16>();
+        if port.is_err() {
+            return Err(err_msg);
+        }
+        link.remote_host = addr[0].to_string();
+        link.remote_port = port.unwrap();
+        return Ok(link);
+    }
 }

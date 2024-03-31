@@ -14,7 +14,7 @@ use crate::{
 /// run a client
 pub async fn run() -> Result<(), Error> {
     let stream = connect_with_timeout(
-        &G_CFG.get().unwrap().server,
+        &G_CFG.get().unwrap().link.remote_host,
         G_CFG.get().unwrap().contrl_port,
     )
     .await?;
@@ -46,10 +46,11 @@ pub async fn run() -> Result<(), Error> {
 
 /// authentication info to server
 async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
-    if G_CFG.get().unwrap().secret.is_none() {
+    let secret = &G_CFG.get().unwrap().secret;
+    if secret.is_none() {
         return Ok(());
     }
-    let secret = G_CFG.get().unwrap().secret.as_ref().unwrap();
+    let secret = secret.as_ref().unwrap();
 
     frame_stream.send(&Message::Auth(secret.clone())).await?;
 
@@ -63,13 +64,18 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
 
 /// send and recv InitPort message with server
 async fn init_port(frame_stream: &mut FrameStream) -> Result<(), Error> {
+    let link = &G_CFG.get().unwrap().link;
+
     frame_stream
-        .send(&Message::InitPort(G_CFG.get().unwrap().remote_port))
+        .send(&Message::InitPort(link.remote_port))
         .await?;
     let msg = frame_stream.recv_timeout().await?;
     match msg {
         Message::InitPort(port) => {
-            info!("listening at {}:{}", G_CFG.get().unwrap().server, port);
+            info!(
+                "{}:{} link to {}:{}",
+                link.local_host, link.local_port, link.remote_host, port
+            );
             Ok(())
         }
         Message::Error(e) => Err(Error::new(ErrorKind::Other, e)),
@@ -78,8 +84,8 @@ async fn init_port(frame_stream: &mut FrameStream) -> Result<(), Error> {
 }
 
 /// create a TcpStream from to:port
-async fn connect_with_timeout(to: &str, port: u16) -> Result<TcpStream, Error> {
-    let ret = timeout(NETWORK_TIMEOUT, TcpStream::connect((to, port))).await;
+async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream, Error> {
+    let ret = timeout(NETWORK_TIMEOUT, TcpStream::connect((addr, port))).await;
     if ret.is_err() {
         return Err(Error::new(ErrorKind::TimedOut, "timeout"));
     }
@@ -88,22 +94,16 @@ async fn connect_with_timeout(to: &str, port: u16) -> Result<TcpStream, Error> {
 
 /// deal connection from server proxy port
 async fn handle_proxy_connection(id: Uuid) -> Result<(), Error> {
-    let stream = connect_with_timeout(
-        &G_CFG.get().unwrap().server,
-        G_CFG.get().unwrap().contrl_port,
-    )
-    .await?;
+    let link = &G_CFG.get().unwrap().link;
+
+    let stream = connect_with_timeout(&link.remote_host, G_CFG.get().unwrap().contrl_port).await?;
     let mut frame_stream = FrameStream::new(stream);
 
     auth(&mut frame_stream).await?;
 
     frame_stream.send(&Message::Connect(id)).await?;
 
-    let local = connect_with_timeout(
-        &G_CFG.get().unwrap().local_host,
-        G_CFG.get().unwrap().local_port,
-    )
-    .await?;
+    let local = connect_with_timeout(&link.local_host, link.local_port).await?;
 
     proxy(local, frame_stream.stream()).await?;
 
