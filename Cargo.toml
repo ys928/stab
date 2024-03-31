@@ -12,6 +12,7 @@ categories = [
 ]
 license = "MIT"
 readme = "readme.md"
+repository = "https://github.com/ys928/stab"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
