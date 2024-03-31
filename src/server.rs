@@ -89,7 +89,7 @@ async fn handle_control_connection(stream: TcpStream) -> Result<(), Error> {
     Ok(())
 }
 
-/// deal InitPort message from client
+/// deal with InitPort message from client
 async fn init_port(frame_stream: &mut FrameStream, port: u16) -> Result<(), Error> {
     let listener = match create_listener(port).await {
         Ok(listener) => listener,
@@ -165,12 +165,12 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
 }
 
 /// create a tcp listener for a port
-async fn create_listener(port: u16) -> Result<TcpListener, String> {
+async fn create_listener(port: u16) -> Result<TcpListener, Error> {
     let port_range = G_CFG.get().unwrap().min_port..G_CFG.get().unwrap().max_port;
     if port > 0 {
         // Client requests a specific port number.
         if !port_range.contains(&port) {
-            return Err("client port number not in allowed range".to_string());
+            return Err(Error::new(ErrorKind::InvalidData, "port not in range"));
         }
         return try_bind(port).await;
     }
@@ -186,7 +186,7 @@ async fn create_listener(port: u16) -> Result<TcpListener, String> {
 
         if n >= port_range.len() {
             PORT_IDX.store(G_CFG.get().unwrap().min_port, Ordering::Relaxed);
-            return Err("not find port".to_string());
+            return Err(Error::new(ErrorKind::Unsupported, "not find port"));
         }
         let ret = try_bind(port).await;
         if ret.is_err() {
@@ -199,18 +199,6 @@ async fn create_listener(port: u16) -> Result<TcpListener, String> {
 }
 
 /// try to bind a port and return TcpListener
-async fn try_bind(port: u16) -> Result<TcpListener, String> {
-    let ret = TcpListener::bind(("0.0.0.0", port)).await;
-    if ret.is_ok() {
-        return Ok(ret.unwrap());
-    }
-
-    let err = ret.unwrap_err();
-    let err = match err.kind() {
-        ErrorKind::AddrInUse => "port already in use",
-        ErrorKind::PermissionDenied => "permission denied",
-        _ => "failed to bind to port",
-    };
-
-    Err(err.to_string())
+async fn try_bind(port: u16) -> Result<TcpListener, Error> {
+    Ok(TcpListener::bind(("0.0.0.0", port)).await?)
 }
