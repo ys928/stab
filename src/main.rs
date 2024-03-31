@@ -1,0 +1,30 @@
+//! the start file
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+
+use config::G_CFG;
+use log::error;
+
+pub mod client;
+pub mod config;
+pub mod server;
+pub mod share;
+
+#[tokio::main]
+async fn main() {
+    config::init_config();
+    config::init_log();
+    match G_CFG.get().unwrap().mode {
+        config::Mode::Local => {
+            client::run().await.unwrap_or_else(|e| {
+                error!("{}", e);
+            });
+        }
+        config::Mode::Server => {
+            server::run().await.unwrap_or_else(|e| {
+                error!("{}", e);
+            });
+        }
+    }
+}

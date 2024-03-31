@@ -1,0 +1,216 @@
+//! the server mode code
+
+use std::io::{Error, ErrorKind};
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Mutex;
+use std::time::Duration;
+
+use crate::config::G_CFG;
+use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
+use log::{info, warn};
+use std::collections::HashMap;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::time::{sleep, timeout};
+use uuid::Uuid;
+
+/// Concurrent map of IDs to incoming connections.
+static CLI_CONNS: Mutex<Option<HashMap<Uuid, TcpStream>>> = Mutex::new(None);
+
+/// current port number
+static PORT_IDX: AtomicU16 = AtomicU16::new(0);
+
+/// Start the server, listening for new control connections.
+pub async fn run() -> Result<(), Error> {
+    {
+        let mut conns = CLI_CONNS.lock().unwrap();
+        *conns = Some(HashMap::new());
+    }
+
+    let port_range = G_CFG.get().unwrap().min_port..G_CFG.get().unwrap().max_port;
+    if port_range.is_empty() {
+        panic!("must provide at least one port");
+    }
+    let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().contrl_port);
+
+    let control_listener = TcpListener::bind(&addr).await?;
+
+    info!("server listening {}", addr);
+
+    loop {
+        let (stream, addr) = control_listener.accept().await?;
+
+        tokio::spawn(async move {
+            info!("incoming control connection");
+            if let Err(err) = handle_control_connection(stream).await {
+                warn!("control connection {:?} exited with error：{}", addr, err);
+            } else {
+                info!("control connection {:?} exited", addr);
+            }
+        });
+    }
+}
+
+/// deal with control connection
+async fn handle_control_connection(stream: TcpStream) -> Result<(), Error> {
+    let mut frame_stream = FrameStream::new(stream);
+
+    // authentication client
+    auth(&mut frame_stream).await?;
+
+    let msg = frame_stream.recv_timeout().await?;
+    match msg {
+        Message::InitPort(port) => {
+            init_port(&mut frame_stream, port).await?;
+        }
+        Message::Connect(id) => {
+            let conn = {
+                let mut conns = CLI_CONNS.lock().unwrap();
+                conns.as_mut().unwrap().remove(&id)
+            };
+            if conn.is_none() {
+                warn!("missing connection");
+            } else {
+                let stream2 = conn.unwrap();
+                let stream1 = frame_stream.stream();
+                proxy(stream1, stream2).await?;
+            }
+        }
+        Message::Auth(_) => {
+            frame_stream
+                .send(&Message::Error("unexpected auth".to_string()))
+                .await?;
+            return Err(Error::new(ErrorKind::InvalidData, "unexpect auth message"));
+        }
+        _ => {
+            warn!("unexpect message: {:?}", msg);
+            return Err(Error::new(ErrorKind::InvalidData, "unexpect msg"));
+        }
+    }
+    Ok(())
+}
+
+/// deal InitPort message from client
+async fn init_port(frame_stream: &mut FrameStream, port: u16) -> Result<(), Error> {
+    let listener = match create_listener(port).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            frame_stream.send(&Message::Error(e.to_string())).await?;
+            return Ok(());
+        }
+    };
+    let port = listener.local_addr().unwrap().port();
+    info!("new client {}", port);
+
+    frame_stream.send(&Message::InitPort(port)).await?;
+
+    loop {
+        // check connect is ok
+        frame_stream.send(&Message::Heartbeat).await?;
+
+        let proxy_conn = timeout(NETWORK_TIMEOUT, listener.accept()).await;
+        if proxy_conn.is_err() {
+            continue;
+        }
+
+        let (stream2, addr) = proxy_conn.unwrap()?;
+
+        info!("new connection {}:{}", addr, port);
+
+        let id = Uuid::new_v4();
+        {
+            let mut conns = CLI_CONNS.lock().unwrap();
+            conns.as_mut().unwrap().insert(id, stream2);
+        }
+
+        tokio::spawn(async move {
+            // Remove stale entries to avoid memory leaks.
+            sleep(Duration::from_secs(10)).await;
+            let mut conns = CLI_CONNS.lock().unwrap();
+            if conns.as_mut().unwrap().remove(&id).is_some() {
+                warn!("removed stale connection {}", id);
+            }
+        });
+
+        frame_stream.send(&Message::Connect(id)).await?;
+    }
+}
+
+/// authenticate client
+async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
+    let secret = &G_CFG.get().unwrap().secret;
+    if secret.is_none() {
+        return Ok(());
+    }
+    let secret = secret.as_ref().unwrap();
+    let msg = frame_stream.recv_timeout().await?;
+    match msg {
+        Message::Auth(token) => {
+            if token.cmp(secret).is_eq() {
+                frame_stream.send(&Message::Auth(token)).await?;
+                return Ok(());
+            } else {
+                frame_stream
+                    .send(&Message::Error("auth failed".to_string()))
+                    .await?;
+                return Err(Error::new(ErrorKind::PermissionDenied, "auth failed"));
+            }
+        }
+        _ => {
+            frame_stream
+                .send(&Message::Error("auth failed".to_string()))
+                .await?;
+            return Err(Error::new(ErrorKind::PermissionDenied, "auth failed"));
+        }
+    }
+}
+
+/// create a tcp listener for a port
+async fn create_listener(port: u16) -> Result<TcpListener, String> {
+    let port_range = G_CFG.get().unwrap().min_port..G_CFG.get().unwrap().max_port;
+    if port > 0 {
+        // Client requests a specific port number.
+        if !port_range.contains(&port) {
+            return Err("client port number not in allowed range".to_string());
+        }
+        return try_bind(port).await;
+    }
+
+    // Client requests any available port in range.
+    let mut port = PORT_IDX.load(Ordering::Relaxed);
+    let mut n = 0;
+    loop {
+        if port >= G_CFG.get().unwrap().max_port || port < G_CFG.get().unwrap().min_port {
+            port = G_CFG.get().unwrap().min_port;
+        }
+        n += 1;
+
+        if n >= port_range.len() {
+            PORT_IDX.store(G_CFG.get().unwrap().min_port, Ordering::Relaxed);
+            return Err("not find port".to_string());
+        }
+        let ret = try_bind(port).await;
+        if ret.is_err() {
+            port += 1;
+            continue;
+        }
+        PORT_IDX.store(port + 1, Ordering::Relaxed);
+        return ret;
+    }
+}
+
+/// try to bind a port and return TcpListener
+async fn try_bind(port: u16) -> Result<TcpListener, String> {
+    let ret = TcpListener::bind(("0.0.0.0", port)).await;
+    if ret.is_ok() {
+        return Ok(ret.unwrap());
+    }
+
+    let err = ret.unwrap_err();
+    let err = match err.kind() {
+        ErrorKind::AddrInUse => "port already in use",
+        ErrorKind::PermissionDenied => "permission denied",
+        _ => "failed to bind to port",
+    };
+
+    Err(err.to_string())
+}
