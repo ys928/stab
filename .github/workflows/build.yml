@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'v*' # v1.0，v20.15.10
-
+  workflow_dispatch:
 env:
   CARGO_TERM_COLOR: always
 
