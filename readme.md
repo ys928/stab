@@ -4,7 +4,9 @@ A modern, simple TCP tunnel in Rust that exposes local ports to a remote server.
 
 ### 1.Installation
 
+```bash
 cargo install stab
+```
 
 ### 2.Server
 
