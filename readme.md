@@ -1,5 +1,5 @@
 <p align="left">
-    <span>英文</span>
+    <span>English</span>
     <span> • </span>
     <a href="readme_zh.md">中文</a>
 </p>
