@@ -1,85 +1,86 @@
 <p align="left">
-    <span>英文</span>
+    <a href="readme.md">英文</a>
     <span> • </span>
-    <a href="readme_zh.md">中文</a>
+    <span>中文</span>
 </p>
+
 
 # stab
 
-A modern, simple TCP tunnel in Rust that exposes local ports to a remote server.
+这是一个由Rust实现的、现代的、简单的 TCP 隧道工具，可轻松将本地端口暴露给远程服务器。
 
-### 1.Installation
+### 1.安装
 
 ```bash
 cargo install stab
 ```
 
-### 2.Server
+### 2.服务器
 
 ```bash
 stab server
 ```
 
-This will start server mode, and the default control port is 5746, but you can modify：
+这将启动服务器模式，默认控制端口为 5746，但您可以修改：
 
 ```bash
 stab server -c 7777
 ```
 
-### 3.Local
+### 3.本地
 
 ```bash
 stab local -p 8000 --to your.server.com
 ```
 
-This will expose your local port at localhost:8000 to the public internet at your.server.com, where the port number are assigned by the server.
+这将暴露你本地 localhost:8000 端口到你的公网 your.server.com 上，并且端口由服务器自动分配。
 
-If the server has changed the default control port, then it should be changed here as well:
+如果你的服务器更改了默认的控制端口，那么这里也应该更改：
 
 ```bash
 stab local -c 7777 -p 8000 --to your.server.com
 ```
 
-### 4.Example
+### 4.示例
 
-Let's say you start the stab server on the cloud server `your.server.com`:
+假设你在你的`your.server.com`中启动了stab服务器模式：
 
 ```bash
 stab server
 ```
 
-And you have opened a local web server on port 8000, then you can connect to the server via `stab`, exposing the local web service.
+并且你在本地端口8000启动了一个web服务器，之后你就可以通过`stab`连接到服务器来暴露本地的web服务：
 
 ```bash
 stab local -p 8000 --to your.server.com
 ```
 
-After successfully connecting to the server, you will get an output log message similar to the following:
+当你成功连接到服务器后，你将得到类似下面这样的日志输出：
 
 ```bash
 09:46:42 [INFO] src\client.rs:72 => listening at your.server.com:1024
 ```
 
-At this point you can access your local web service at `your.server.com:1024`.
+此时，你就能通过 `your.server.com:1024` 访问到你的本地web服务。
 
-### 5.Secret
+### 5.密钥
 
-To prevent malicious use by others, you can add a key：
+为了防止被别人滥用，你可以添加一个密钥：
 
 ```bash
 stab server -c 7777 -s test
 ```
 
-At this point the client must also pass the key to connect to the server:
+此时客户端就必须填入密钥才能连接到服务器：
 
 ```bash
 stab local -p 8000 --to your.server.com -s test
 ```
 
 
-### 6.Options
+### 6.可选参数
 
-The full options are shown below.
+完整的可选参数如下：
 
 ```bash
 a simple CLI tool for making tunnels to localhost
@@ -102,5 +103,4 @@ Options:
   -V, --version                     Print version
 ```
 
-Note: Some options are only available in server mode, some options are only available in local mode, others is generic.
-
+注意：某些选项只在服务器模式下有效，某些模式仅在本地模式下有效，剩下的则是共用的。
