@@ -1,6 +1,7 @@
 //! the server mode code
 
 use std::io::{Error, ErrorKind};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -16,6 +17,9 @@ use uuid::Uuid;
 /// Concurrent map of IDs to incoming connections.
 static CLI_CONNS: Mutex<Option<HashMap<Uuid, TcpStream>>> = Mutex::new(None);
 
+/// All control connect
+pub static CTL_CONNS: Mutex<Option<HashMap<u16, String>>> = Mutex::new(None);
+
 /// current port number
 static PORT_IDX: AtomicU16 = AtomicU16::new(0);
 
@@ -24,6 +28,8 @@ pub async fn run() -> Result<(), Error> {
     {
         let mut conns = CLI_CONNS.lock().unwrap();
         *conns = Some(HashMap::new());
+        let mut ctl_conns = CTL_CONNS.lock().unwrap();
+        *ctl_conns = Some(HashMap::new());
     }
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().contrl_port);
@@ -37,7 +43,7 @@ pub async fn run() -> Result<(), Error> {
 
         tokio::spawn(async move {
             info!("incoming control connection");
-            if let Err(err) = handle_control_connection(stream).await {
+            if let Err(err) = handle_control_connection(stream, addr).await {
                 warn!("control connection {:?} exited with error：{}", addr, err);
             } else {
                 info!("control connection {:?} exited", addr);
@@ -47,7 +53,7 @@ pub async fn run() -> Result<(), Error> {
 }
 
 /// deal with control connection
-async fn handle_control_connection(stream: TcpStream) -> Result<(), Error> {
+async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Result<(), Error> {
     let mut frame_stream = FrameStream::new(stream);
 
     // authentication client
@@ -56,7 +62,10 @@ async fn handle_control_connection(stream: TcpStream) -> Result<(), Error> {
     let msg = frame_stream.recv_timeout().await?;
     match msg {
         Message::InitPort(port) => {
-            init_port(&mut frame_stream, port).await?;
+            let ret = init_port(&mut frame_stream, port, addr).await;
+            let mut ctl_conns = CTL_CONNS.lock().unwrap();
+            ctl_conns.as_mut().unwrap().remove(&port);
+            ret?
         }
         Message::Connect(id) => {
             let conn = {
@@ -86,7 +95,11 @@ async fn handle_control_connection(stream: TcpStream) -> Result<(), Error> {
 }
 
 /// deal with InitPort message from client
-async fn init_port(frame_stream: &mut FrameStream, port: u16) -> Result<(), Error> {
+async fn init_port(
+    frame_stream: &mut FrameStream,
+    port: u16,
+    addr: SocketAddr,
+) -> Result<(), Error> {
     let listener = match create_listener(port).await {
         Ok(listener) => listener,
         Err(e) => {
@@ -96,10 +109,27 @@ async fn init_port(frame_stream: &mut FrameStream, port: u16) -> Result<(), Erro
     };
     let port = listener.local_addr().unwrap().port();
     info!("new client {}", port);
+    {
+        let mut ctl_conns = CTL_CONNS.lock().unwrap();
+        ctl_conns.as_mut().unwrap().insert(port, addr.to_string());
+    }
 
     frame_stream.send(&Message::InitPort(port)).await?;
 
     loop {
+        // if not existing,exit immediately
+        let exist = {
+            let ctl_conns = CTL_CONNS.lock().unwrap();
+            ctl_conns.as_ref().unwrap().contains_key(&port)
+        };
+
+        if !exist {
+            frame_stream
+                .send(&Message::Error("server closed this connection".to_string()))
+                .await?;
+            return Ok(());
+        }
+
         // check connect is ok
         frame_stream.send(&Message::Heartbeat).await?;
 
@@ -120,7 +150,7 @@ async fn init_port(frame_stream: &mut FrameStream, port: u16) -> Result<(), Erro
 
         tokio::spawn(async move {
             // Remove stale entries to avoid memory leaks.
-            sleep(Duration::from_secs(10)).await;
+            sleep(Duration::from_secs(15)).await;
             let mut conns = CLI_CONNS.lock().unwrap();
             if conns.as_mut().unwrap().remove(&id).is_some() {
                 warn!("removed stale connection {}", id);

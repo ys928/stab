@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        .styled-table {
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 0.9em;
+            font-family: sans-serif;
+            min-width: 400px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
+            color: #909399;
+            border-bottom: 2px solid #EBEEF5;
+            margin: 0 auto;
+        }
+
+        .styled-table thead tr {
+            background-color: #fff;
+            text-align: center;
+        }
+
+        .styled-table th,
+        .styled-table td {
+            text-align: center;
+            padding: 12px 15px;
+        }
+
+        .styled-table tbody tr {
+            border-bottom: 1px solid #dddddd;
+        }
+
+        .styled-table tbody tr:nth-of-type(even) {
+            background-color: #f3f3f3;
+        }
+
+        button {
+            outline: none;
+            border: 0;
+            color: #F56C6C;
+            background-color: #fff;
+            cursor: pointer;
+        }
+
+        button:hover {
+            color: #F89898;
+        }
+    </style>
+</head>
+
+<body>
+    <table class="styled-table">
+        <thead>
+            <tr>
+                <th>Port</th>
+                <th>Local</th>
+                <th>Operation</th>
+            </tr>
+        </thead>
+        <tbody id="table_body">
+        </tbody>
+    </table>
+
+    <script>
+        let tb = document.querySelector('#table_body');
+        tb.innerHTML = '';
+        fetch('/api/connects', {
+            method: "GET"
+        }).then(async (resp) => {
+            let data = await resp.json();
+            for (let i = 0; i < data.length; i++) {
+
+                let tr = document.createElement('tr');
+
+                let td1 = document.createElement('td');
+                td1.innerText = data[i].port;
+                let td2 = document.createElement('td');
+                td2.innerText = data[i].src;
+
+                let del = document.createElement('button')
+                del.innerText = "Delete";
+
+                del.addEventListener('click', () => {
+                    fetch(`/api/connects/${data[i].port}`, {
+                        method: 'DELETE'
+                    }).then(async (resp) => {
+                        tr.remove();
+                    })
+                });
+
+                let td3 = document.createElement('td');
+                td3.appendChild(del)
+
+                tr.appendChild(td1);
+                tr.appendChild(td2);
+                tr.appendChild(td3);
+
+                tb.appendChild(tr);
+            }
+        })
+    </script>
+</body>
+
+</html>

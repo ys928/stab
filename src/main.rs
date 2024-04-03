@@ -10,6 +10,7 @@ pub mod client;
 pub mod config;
 pub mod server;
 pub mod share;
+pub mod web;
 
 #[tokio::main]
 async fn main() {
@@ -22,6 +23,9 @@ async fn main() {
             });
         }
         config::Mode::Server => {
+            tokio::spawn(async {
+                web::run().await;
+            });
             server::run().await.unwrap_or_else(|e| {
                 error!("{}", e);
             });
