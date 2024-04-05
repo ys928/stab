@@ -45,13 +45,13 @@ stab server -c 7777
 然后你可以在本地运行下面这条命令：
 
 ```bash
-stab local -p --link 8000=>server.com
+stab local -p --link 8000=server.com
 ```
 
 上面命令为简写形式，其完整格式为：
 
 ```bash
-stab local -p --link 127.0.0.1:8000=>server.com:0
+stab local -p --link 127.0.0.1:8000=server.com:0
 ```
 
 该命令会把你的本地`127.0.0.1:8000`端口与你的`server.com:0`进行链接，这是默认行为，此时端口将由服务器自动分配。
@@ -59,14 +59,14 @@ stab local -p --link 127.0.0.1:8000=>server.com:0
 当然你也可以指定服务器暴露端口：
 
 ```bash
-stab local -p --link 127.0.0.1:8000=>server.com:7878
+stab local -p --link 127.0.0.1:8000=server.com:7878
 ```
 
 
 如果你的服务器更改了默认的控制端口，那么这里也应该更改：
 
 ```bash
-stab local -c 7777 --link 8000=>server.com
+stab local -c 7777 --link 8000=server.com
 ```
 
 ### 4.示例
@@ -80,7 +80,7 @@ stab server
 并且你在本地端口8000启动了一个web服务器，之后你就可以通过`stab`连接到服务器来暴露本地的web服务：
 
 ```bash
-stab local -l 8000=>server.com
+stab local -l 8000=server.com
 ```
 
 当你成功连接到服务器后，你将得到类似下面这样的日志输出：
@@ -102,7 +102,7 @@ stab server -s test
 此时客户端就必须填入密钥才能连接到服务器：
 
 ```bash
-stab local -l 8000=>your.server.com -s test
+stab local -l 8000=your.server.com -s test
 ```
 
 
@@ -121,7 +121,7 @@ Arguments:
 Options:
   -c, --contrl-port <control port>  the control port [default: 5746]
   -s, --secret <secret>             an optional secret for authentication
-  -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=>127.0.0.1:0]
+  -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=127.0.0.1:0]
   -p, --port-range <server mode>    accepted TCP port number range [default: 1024-65535]
   -h, --help                        Print help (see more with '--help')
   -V, --version                     Print version

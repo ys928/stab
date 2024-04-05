@@ -44,13 +44,13 @@ Where `0.0.0.0:5746` stands for the control port and `http://localhost:3000` sta
 You can then run the following command locally:
 
 ```bash
-stab local -l 8000=>server.com
+stab local -l 8000=server.com
 ```
 
 The above command is in short form and its full format is:
 
 ```bash
-stab local --link 127.0.0.1:8000=>server.com:0
+stab local --link 127.0.0.1:8000=server.com:0
 ```
 
 This command will link your local `127.0.0.1:8000` port with your `server.com:0`, which is the default behaviour, at which point the port will be automatically assigned by the server.
@@ -58,14 +58,14 @@ This command will link your local `127.0.0.1:8000` port with your `server.com:0`
 Of course you can also specify the server to expose the port:
 
 ```bash
-stab local --link 127.0.0.1:8000=>server.com:7878
+stab local --link 127.0.0.1:8000=server.com:7878
 ```
 
 
 If your server changed the default control port, it should be changed here as well:
 
 ```bash
-stab local -c 7777 --link 8000=>server.com
+stab local -c 7777 --link 8000=server.com
 ```
 
 ### 4.Example
@@ -79,7 +79,7 @@ stab server
 And you start a web server on local port 8000, after which you can connect to the server via `stab` to expose the local web service:
 
 ```bash
-stab local -l 8000=>server.com
+stab local -l 8000=server.com
 ```
 
 When you successfully connect to the server, you will get log output similar to the following:
@@ -101,7 +101,7 @@ stab server -s test
 At this point the client will have to fill in the key to connect to the server:
 
 ```bash
-stab local -l 8000=>your.server.com -s test
+stab local -l 8000=your.server.com -s test
 ```
 
 
@@ -120,7 +120,7 @@ Arguments:
 Options:
   -c, --contrl-port <control port>  the control port [default: 5746]
   -s, --secret <secret>             an optional secret for authentication
-  -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=>127.0.0.1:0]
+  -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=127.0.0.1:0]
   -p, --port-range <server mode>    accepted TCP port number range [default: 1024-65535]
   -h, --help                        Print help (see more with '--help')
   -V, --version                     Print version

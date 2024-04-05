@@ -39,7 +39,7 @@ pub struct HoleArgs {
     pub secret: Option<String>,
 
     /// create a link from the local to the server
-    #[clap(short,long,value_name = "local mode",value_parser=parse_link,default_value = "127.0.0.1:8080=>127.0.0.1:0")]
+    #[clap(short,long,value_name = "local mode",value_parser=parse_link,default_value = "127.0.0.1:8080=127.0.0.1:0")]
     pub link: Link,
 
     /// accepted TCP port number range
@@ -139,9 +139,9 @@ fn parse_range(s: &str) -> Result<Range<u16>, String> {
 
 fn parse_link(raw_link: &str) -> Result<Link, String> {
     let err_msg =
-        "parse link failed,format: 80=>stab.com or localhost:80=>stab.com:8989".to_string();
+        "parse link failed,format: 80=stab.com or localhost:80=stab.com:8989".to_string();
 
-    let addrs: Vec<&str> = raw_link.split("=>").collect();
+    let addrs: Vec<&str> = raw_link.split("=").collect();
     if addrs.len() != 2 {
         return Err(err_msg);
     }
