@@ -90,7 +90,7 @@ When you successfully connect to the server, you will get log output similar to 
 
 At this point, you will be able to access your local web service via `server.com:1024`.
 
-### 5.密钥
+### 5.Secret
 
 To prevent abuse by others, you can add a key:
 
