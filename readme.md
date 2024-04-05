@@ -6,9 +6,9 @@
 
 # stab
 
-A modern, simple TCP tunnel in Rust that exposes local ports to a remote server.
+This is a modern, simple, high-performance TCP tunneling tool implemented by rust to easily expose local ports to remote servers.
 
-### 1.Installation
+### 1.Installation 
 
 ```bash
 cargo install stab
@@ -16,70 +16,97 @@ cargo install stab
 
 ### 2.Server
 
+You can run this command below on your server:
+
 ```bash
 stab server
 ```
 
-This will start server mode, and the default control port is 5746, but you can modify：
+This will start stab in server mode with a default control port of 5746, but you can change this:
 
 ```bash
 stab server -c 7777
 ```
 
-### 3.Local
+After a successful run, you will see output like the following:
 
 ```bash
-stab local -p 8000 --to your.server.com
+09:39:49 [INFO] src\server.rs:39 => server listening 0.0.0.0:5746
+09:39:49 [INFO] src\web\mod.rs:31 => web server:http://localhost:3000
 ```
 
-This will expose your local port at localhost:8000 to the public internet at your.server.com, where the port number are assigned by the server.
+Where `0.0.0.0:5746` stands for the control port and `http://localhost:3000` stands for the web service, you can view information about all clients connected to this server through this link, and you can proactively disconnect the link manually:
 
-If the server has changed the default control port, then it should be changed here as well:
+
+### 3.Local
+
+You can then run the following command locally:
 
 ```bash
-stab local -c 7777 -p 8000 --to your.server.com
+stab local -l 8000=>server.com
+```
+
+The above command is in short form and its full format is:
+
+```bash
+stab local --link 127.0.0.1:8000=>server.com:0
+```
+
+This command will link your local `127.0.0.1:8000` port with your `server.com:0`, which is the default behaviour, at which point the port will be automatically assigned by the server.
+
+Of course you can also specify the server to expose the port:
+
+```bash
+stab local --link 127.0.0.1:8000=>server.com:7878
+```
+
+
+If your server changed the default control port, it should be changed here as well:
+
+```bash
+stab local -c 7777 --link 8000=>server.com
 ```
 
 ### 4.Example
 
-Let's say you start the stab server on the cloud server `your.server.com`:
+Let's say you start stab server mode in `server.com`:
 
 ```bash
 stab server
 ```
 
-And you have opened a local web server on port 8000, then you can connect to the server via `stab`, exposing the local web service.
+And you start a web server on local port 8000, after which you can connect to the server via `stab` to expose the local web service:
 
 ```bash
-stab local -p 8000 --to your.server.com
+stab local -l 8000=>server.com
 ```
 
-After successfully connecting to the server, you will get an output log message similar to the following:
+When you successfully connect to the server, you will get log output similar to the following:
 
 ```bash
-09:46:42 [INFO] src\client.rs:72 => listening at your.server.com:1024
+09:46:42 [INFO] src\client.rs:72 => listening at server.com:1024
 ```
 
-At this point you can access your local web service at `your.server.com:1024`.
+At this point, you will be able to access your local web service via `server.com:1024`.
 
-### 5.Secret
+### 5.密钥
 
-To prevent malicious use by others, you can add a key：
+To prevent abuse by others, you can add a key:
 
 ```bash
-stab server -c 7777 -s test
+stab server -s test
 ```
 
-At this point the client must also pass the key to connect to the server:
+At this point the client will have to fill in the key to connect to the server:
 
 ```bash
-stab local -p 8000 --to your.server.com -s test
+stab local -l 8000=>your.server.com -s test
 ```
 
 
-### 6.Options
+### 6.Option
 
-The full options are shown below.
+The complete optional parameters are listed below:
 
 ```bash
 a simple CLI tool for making tunnels to localhost
@@ -92,15 +119,10 @@ Arguments:
 Options:
   -c, --contrl-port <control port>  the control port [default: 5746]
   -s, --secret <secret>             an optional secret for authentication
-  -p, --local-port <local mode>     local port to expose [default: 8080]
-  -l, --local-host <local mode>     local host to expose [default: localhost]
-      --to <local mode>             address of the remote server [default: localhost]
-  -r, --remote-port <local mode>    optional port on the remote server to select [default: 0]
-      --min <server mode>           minimum accepted TCP port number [default: 1024]
-      --max <server mode>           maximum accepted TCP port number [default: 65535]
+  -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=>127.0.0.1:0]
+  -p, --port-range <server mode>    accepted TCP port number range [default: 1024-65535]
   -h, --help                        Print help (see more with '--help')
   -V, --version                     Print version
 ```
 
-Note: Some options are only available in server mode, some options are only available in local mode, others is generic.
-
+Note that `-p` is used to specify a range of ports available to the server, which is ignored by the client.

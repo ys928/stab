@@ -7,7 +7,7 @@
 
 # stab
 
-这是一个由Rust实现的、现代的、简单的 TCP 隧道工具，可轻松将本地端口暴露给远程服务器。
+这是一个现代、简单、由rust实现的高性能TCP隧道工具，可轻松将本地端口暴露给远程服务器。
 
 ### 1.安装
 
@@ -17,33 +17,60 @@ cargo install stab
 
 ### 2.服务器
 
+你可以在你的服务器上运行下面这个命令：
+
 ```bash
 stab server
 ```
 
-这将启动服务器模式，默认控制端口为 5746，但您可以修改：
+这将启动stab的服务器模式，其默认的控制端口为5746，但您可以修改：
 
 ```bash
 stab server -c 7777
 ```
 
-### 3.本地
+运行成功后，你将看到下面这样的输出：
 
 ```bash
-stab local -p 8000 --to your.server.com
+09:39:49 [INFO] src\server.rs:39 => server listening 0.0.0.0:5746
+09:39:49 [INFO] src\web\mod.rs:31 => web server:http://localhost:3000
 ```
 
-这将暴露你本地 localhost:8000 端口到你的公网 your.server.com 上，并且端口由服务器自动分配。
+其中`0.0.0.0:5746`代表控制端口，而`http://localhost:3000`则代表web服务，你可以通过该链接查看到所有连接到本服务器的客户端信息，并可以主动手动断开该链接：
+
+
+### 3.本地
+
+然后你可以在本地运行下面这条命令：
+
+```bash
+stab local -p --link 8000=>server.com
+```
+
+上面命令为简写形式，其完整格式为：
+
+```bash
+stab local -p --link 127.0.0.1:8000=>server.com:0
+```
+
+该命令会把你的本地`127.0.0.1:8000`端口与你的`server.com:0`进行链接，这是默认行为，此时端口将由服务器自动分配。
+
+当然你也可以指定服务器暴露端口：
+
+```bash
+stab local -p --link 127.0.0.1:8000=>server.com:7878
+```
+
 
 如果你的服务器更改了默认的控制端口，那么这里也应该更改：
 
 ```bash
-stab local -c 7777 -p 8000 --to your.server.com
+stab local -c 7777 --link 8000=>server.com
 ```
 
 ### 4.示例
 
-假设你在你的`your.server.com`中启动了stab服务器模式：
+假设你在`server.com`中启动了stab服务器模式：
 
 ```bash
 stab server
@@ -52,29 +79,29 @@ stab server
 并且你在本地端口8000启动了一个web服务器，之后你就可以通过`stab`连接到服务器来暴露本地的web服务：
 
 ```bash
-stab local -p 8000 --to your.server.com
+stab local -l 8000=>server.com
 ```
 
 当你成功连接到服务器后，你将得到类似下面这样的日志输出：
 
 ```bash
-09:46:42 [INFO] src\client.rs:72 => listening at your.server.com:1024
+09:46:42 [INFO] src\client.rs:72 => listening at server.com:1024
 ```
 
-此时，你就能通过 `your.server.com:1024` 访问到你的本地web服务。
+此时，你就能通过 `server.com:1024` 访问到你的本地web服务。
 
 ### 5.密钥
 
 为了防止被别人滥用，你可以添加一个密钥：
 
 ```bash
-stab server -c 7777 -s test
+stab server -s test
 ```
 
 此时客户端就必须填入密钥才能连接到服务器：
 
 ```bash
-stab local -p 8000 --to your.server.com -s test
+stab local -l 8000=>your.server.com -s test
 ```
 
 
@@ -93,14 +120,10 @@ Arguments:
 Options:
   -c, --contrl-port <control port>  the control port [default: 5746]
   -s, --secret <secret>             an optional secret for authentication
-  -p, --local-port <local mode>     local port to expose [default: 8080]
-  -l, --local-host <local mode>     local host to expose [default: localhost]
-      --to <local mode>             address of the remote server [default: localhost]
-  -r, --remote-port <local mode>    optional port on the remote server to select [default: 0]
-      --min <server mode>           minimum accepted TCP port number [default: 1024]
-      --max <server mode>           maximum accepted TCP port number [default: 65535]
+  -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=>127.0.0.1:0]
+  -p, --port-range <server mode>    accepted TCP port number range [default: 1024-65535]
   -h, --help                        Print help (see more with '--help')
   -V, --version                     Print version
 ```
 
-注意：某些选项只在服务器模式下有效，某些模式仅在本地模式下有效，剩下的则是共用的。
+注意，`-p`用于指定服务器可用端口的范围，客户端将忽略该参数。
