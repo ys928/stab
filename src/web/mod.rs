@@ -18,7 +18,7 @@ struct CtlConInfo {
     src: String,
 }
 
-use crate::server::CTL_CONNS;
+use crate::{config::G_CFG, server::CTL_CONNS};
 
 /// run the web server
 pub async fn run() {
@@ -27,8 +27,11 @@ pub async fn run() {
         .route("/api/connects", get(get_connects))
         .route("/api/connects/:port", delete(del_connect));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    info!("web server:http://localhost:3000");
+    let port = G_CFG.get().unwrap().web_port;
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+        .await
+        .unwrap();
+    info!("web server:http://localhost:{}", port);
     axum::serve(listener, app).await.unwrap();
 }
 

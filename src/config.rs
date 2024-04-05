@@ -45,6 +45,10 @@ pub struct HoleArgs {
     /// accepted TCP port number range
     #[clap(short, long,value_name = "server mode", value_parser = parse_range,default_value="1024-65535")]
     pub port_range: Range<u16>,
+
+    /// web manage server port
+    #[clap(short, long, value_name = "server mode", default_value = "3000")]
+    pub web_port: u16,
 }
 /// the run mode
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -138,8 +142,7 @@ fn parse_range(s: &str) -> Result<Range<u16>, String> {
 }
 
 fn parse_link(raw_link: &str) -> Result<Link, String> {
-    let err_msg =
-        "parse link failed,format: 80=stab.com or localhost:80=stab.com:8989".to_string();
+    let err_msg = "parse link failed,format: 80=stab.com or localhost:80=stab.com:8989".to_string();
 
     let addrs: Vec<&str> = raw_link.split("=").collect();
     if addrs.len() != 2 {
