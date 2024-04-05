@@ -122,6 +122,7 @@ Options:
   -s, --secret <secret>             an optional secret for authentication
   -l, --link <local mode>           create a link from the local to the server [default: 127.0.0.1:8080=127.0.0.1:0]
   -p, --port-range <server mode>    accepted TCP port number range [default: 1024-65535]
+  -w, --web-port <server mode>      web manage server port [default: 3000]
   -h, --help                        Print help (see more with '--help')
   -V, --version                     Print version
 ```
