@@ -19,13 +19,13 @@ use log4rs::{
 };
 
 /// global configuration
-pub static G_CFG: OnceLock<HoleArgs> = OnceLock::new();
+pub static G_CFG: OnceLock<StabArgs> = OnceLock::new();
 
 /// the command line arguments
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 #[command(styles=help_styles())]
-pub struct HoleArgs {
+pub struct StabArgs {
     /// run mode
     #[clap(value_enum)]
     pub mode: Mode,
@@ -75,7 +75,7 @@ pub struct Link {
 
 /// parse config from command line arguments
 pub fn init_config() {
-    let mut args = HoleArgs::parse();
+    let mut args = StabArgs::parse();
     // hash secret
     if let Some(secret) = args.secret {
         let hashed_secret = Sha256::new().chain_update(secret).finalize();
