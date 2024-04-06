@@ -6,7 +6,7 @@
 
 # stab
 
-This is a modern, simple, high-performance TCP tunneling tool implemented by rust to easily expose local ports to remote servers.
+This is a modern, simple, high-performance TCP tunneling tool implemented by rust to easily expose local ports to remote servers,borrowed from bore.
 
 ### 1.Installation 
 
