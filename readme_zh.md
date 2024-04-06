@@ -11,9 +11,13 @@
 
 ### 1.安装
 
+如果你安装了rust开发环境，那么使用cargo可能是最简单的方式：
+
 ```bash
 cargo install stab
 ```
+
+如果没有cargo，那么你可以去[release](https://github.com/ys928/stab/releases)下载相应的版本。
 
 ### 2.服务器
 

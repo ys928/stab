@@ -10,9 +10,13 @@ This is a modern, simple, high-performance TCP tunneling tool implemented by rus
 
 ### 1.Installation 
 
+If you have the rust development environment installed, then using cargo is probably the easiest way to go:
+
 ```bash
 cargo install stab
 ```
+
+If there is no cargo, then you can go to [release](https://github.com/ys928/stab/releases) and download the appropriate version.
 
 ### 2.Server
 
