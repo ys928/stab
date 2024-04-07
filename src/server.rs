@@ -8,17 +8,30 @@ use std::time::Duration;
 
 use crate::config::G_CFG;
 use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
+use chrono::Local;
 use log::{info, warn};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
+/// connection information
+#[derive(Deserialize, Serialize)]
+pub struct CtlConInfo {
+    /// server port
+    pub port: u16,
+    /// src address
+    pub src: String,
+    /// begin time
+    pub time: String,
+}
+
 /// Concurrent map of IDs to incoming connections.
 static CLI_CONNS: Mutex<Option<HashMap<Uuid, TcpStream>>> = Mutex::new(None);
 
 /// All control connect
-pub static CTL_CONNS: Mutex<Option<HashMap<u16, String>>> = Mutex::new(None);
+pub static CTL_CONNS: Mutex<Option<HashMap<u16, CtlConInfo>>> = Mutex::new(None);
 
 /// current port number
 static PORT_IDX: AtomicU16 = AtomicU16::new(0);
@@ -111,7 +124,16 @@ async fn init_port(
     info!("new client {}", port);
     {
         let mut ctl_conns = CTL_CONNS.lock().unwrap();
-        ctl_conns.as_mut().unwrap().insert(port, addr.to_string());
+        let date = Local::now();
+        let time = date.format("%Y-%m-%d %H:%M:%S").to_string();
+        ctl_conns.as_mut().unwrap().insert(
+            port,
+            CtlConInfo {
+                port,
+                src: addr.to_string(),
+                time,
+            },
+        );
     }
 
     frame_stream.send(&Message::InitPort(port)).await?;

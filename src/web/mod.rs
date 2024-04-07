@@ -9,16 +9,11 @@ use axum::{
 };
 
 use log::info;
-use serde::{Deserialize, Serialize};
 
-/// connection information
-#[derive(Deserialize, Serialize)]
-struct CtlConInfo {
-    port: u16,
-    src: String,
-}
-
-use crate::{config::G_CFG, server::CTL_CONNS};
+use crate::{
+    config::G_CFG,
+    server::{CtlConInfo, CTL_CONNS},
+};
 
 /// run the web server
 pub async fn run() {
@@ -51,10 +46,11 @@ async fn get_connects() -> Json<Vec<CtlConInfo>> {
     let conn = CTL_CONNS.lock().unwrap();
     let conn = conn.as_ref().unwrap();
     let mut ret = Vec::new();
-    for (k, v) in conn {
+    for v in conn.values() {
         ret.push(CtlConInfo {
-            port: *k,
-            src: v.to_string(),
+            port: v.port,
+            src: v.src.to_string(),
+            time: v.time.to_string(),
         });
     }
     Json(ret)

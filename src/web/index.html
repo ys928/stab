@@ -55,6 +55,7 @@
     <table class="styled-table">
         <thead>
             <tr>
+                <th>Time</th>
                 <th>Port</th>
                 <th>Local</th>
                 <th>Operation</th>
@@ -75,10 +76,12 @@
 
                 let tr = document.createElement('tr');
 
-                let td1 = document.createElement('td');
-                td1.innerText = data[i].port;
-                let td2 = document.createElement('td');
-                td2.innerText = data[i].src;
+                let td_port = document.createElement('td');
+                td_port.innerText = data[i].port;
+                let td_src = document.createElement('td');
+                td_src.innerText = data[i].src;
+                let td_time = document.createElement('td');
+                td_time.innerText = data[i].time;
 
                 let del = document.createElement('button')
                 del.innerText = "Delete";
@@ -91,12 +94,13 @@
                     })
                 });
 
-                let td3 = document.createElement('td');
-                td3.appendChild(del)
+                let td_delete = document.createElement('td');
+                td_delete.appendChild(del)
 
-                tr.appendChild(td1);
-                tr.appendChild(td2);
-                tr.appendChild(td3);
+                tr.appendChild(td_time)
+                tr.appendChild(td_port);
+                tr.appendChild(td_src);
+                tr.appendChild(td_delete);
 
                 tb.appendChild(tr);
             }
