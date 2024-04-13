@@ -42,7 +42,7 @@ stab server -c 7777
 
 其中`0.0.0.0:5746`代表控制端口，而`http://localhost:3000`则代表web服务，你可以通过该链接查看到所有连接到本服务器的客户端信息，并可以主动手动断开该链接：
 
-![image](https://github.com/ys928/stab/assets/80371119/4fce5945-02c0-49bb-8c46-8b6d53af7617)
+![image](https://github.com/ys928/stab/assets/80371119/8ee0615f-5e44-46bf-868b-f3f8bf99fbe5)
 
 ### 3.本地
 

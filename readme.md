@@ -41,7 +41,7 @@ After a successful run, you will see output like the following:
 
 Where `0.0.0.0:5746` stands for the control port and `http://localhost:3000` stands for the web service, you can view information about all clients connected to this server through this link, and you can proactively disconnect the link manually:
 
-![image](https://github.com/ys928/stab/assets/80371119/4fce5945-02c0-49bb-8c46-8b6d53af7617)
+![image](https://github.com/ys928/stab/assets/80371119/8ee0615f-5e44-46bf-868b-f3f8bf99fbe5)
 
 ### 3.Local
 
