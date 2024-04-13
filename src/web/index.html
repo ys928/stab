@@ -58,6 +58,7 @@
                 <th>Time</th>
                 <th>Port</th>
                 <th>Local</th>
+                <th>Data</th>
                 <th>Operation</th>
             </tr>
         </thead>
@@ -78,10 +79,15 @@
 
                 let td_port = document.createElement('td');
                 td_port.innerText = data[i].port;
+
                 let td_src = document.createElement('td');
                 td_src.innerText = data[i].src;
+                
                 let td_time = document.createElement('td');
                 td_time.innerText = data[i].time;
+                
+                let td_data = document.createElement('td');
+                td_data.innerText = formatBytes(data[i].data);
 
                 let del = document.createElement('button')
                 del.innerText = "Delete";
@@ -98,13 +104,31 @@
                 td_delete.appendChild(del)
 
                 tr.appendChild(td_time)
+
                 tr.appendChild(td_port);
+                
                 tr.appendChild(td_src);
+                
+                tr.appendChild(td_data);
+
                 tr.appendChild(td_delete);
 
                 tb.appendChild(tr);
             }
         })
+
+        function formatBytes(bytes) {
+
+            if (bytes === 0) return '0 Bytes';
+
+            const k = 1024;
+
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
     </script>
 </body>
 

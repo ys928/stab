@@ -25,10 +25,20 @@ pub struct CtlConInfo {
     pub src: String,
     /// begin time
     pub time: String,
+    /// transmission data size
+    pub data: u64,
+}
+
+/// Links for transferring data.
+pub struct DataConn {
+    /// Subordinate Port
+    pub port: u16,
+    /// connection
+    pub stream: TcpStream,
 }
 
 /// Concurrent map of IDs to incoming connections.
-static CLI_CONNS: Mutex<Option<HashMap<Uuid, TcpStream>>> = Mutex::new(None);
+static CLI_CONNS: Mutex<Option<HashMap<Uuid, DataConn>>> = Mutex::new(None);
 
 /// All control connect
 pub static CTL_CONNS: Mutex<Option<HashMap<u16, CtlConInfo>>> = Mutex::new(None);
@@ -90,7 +100,13 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             } else {
                 let stream2 = conn.unwrap();
                 let stream1 = frame_stream.stream();
-                proxy(stream1, stream2).await?;
+                let size = proxy(stream1, stream2.stream).await?;
+                let mut ctl_conns = CTL_CONNS.lock().unwrap();
+                let info = ctl_conns.as_mut().unwrap().get_mut(&stream2.port);
+                if info.is_some() {
+                    let info = info.unwrap();
+                    info.data += size;
+                }
             }
         }
         Message::Auth(_) => {
@@ -132,6 +148,7 @@ async fn init_port(
                 port,
                 src: addr.to_string(),
                 time,
+                data: 0,
             },
         );
     }
@@ -160,14 +177,17 @@ async fn init_port(
             continue;
         }
 
-        let (stream2, addr) = proxy_conn.unwrap()?;
+        let (stream, addr) = proxy_conn.unwrap()?;
 
         info!("new connection {}:{}", addr, port);
 
         let id = Uuid::new_v4();
         {
             let mut conns = CLI_CONNS.lock().unwrap();
-            conns.as_mut().unwrap().insert(id, stream2);
+            conns
+                .as_mut()
+                .unwrap()
+                .insert(id, DataConn { port, stream });
         }
 
         tokio::spawn(async move {

@@ -51,6 +51,7 @@ async fn get_connects() -> Json<Vec<CtlConInfo>> {
             port: v.port,
             src: v.src.to_string(),
             time: v.time.to_string(),
+            data: v.data,
         });
     }
     Json(ret)
