@@ -89,7 +89,7 @@ pub fn init_config() {
 pub fn init_log() {
     let con = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
-            "{d(%H:%M:%S)} [{l}] {M}:{L} => {m}{n}",
+            "{d(%H:%M:%S)} {h([{l}])} {M}:{L} => {m}{n}",
         )))
         .build();
 
