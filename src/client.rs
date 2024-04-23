@@ -25,8 +25,15 @@ pub async fn run() -> Result<(), Error> {
     init_port(&mut frame_stream).await?;
 
     loop {
-        let msg = frame_stream.recv().await?;
-        match msg {
+        // sure connection is established
+        frame_stream.send(&Message::Heartbeat).await?;
+
+        let msg = frame_stream.recv_timeout().await;
+        if msg.is_err() {
+            continue;
+        }
+
+        match msg.unwrap() {
             Message::InitPort(_) => info!("unexpected init"),
             Message::Auth(_) => warn!("unexpected auth"),
             Message::Heartbeat => debug!("server check heartbeat"),

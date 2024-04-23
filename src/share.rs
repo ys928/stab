@@ -91,6 +91,16 @@ impl FrameStream {
         }
         ret.unwrap()
     }
+
+    /// recv message within the customer time
+    pub async fn recv_self_timeout(&mut self, time: Duration) -> Result<Message, Error> {
+        let ret = timeout(time, self.recv()).await;
+        if ret.is_err() {
+            return Err(Error::new(io::ErrorKind::TimedOut, "over time"));
+        }
+        ret.unwrap()
+    }
+
     /// get the TcpStream
     pub fn stream(self) -> TcpStream {
         self.stream
