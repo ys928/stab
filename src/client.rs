@@ -2,7 +2,7 @@
 
 use std::io::{Error, ErrorKind};
 
-use log::{debug, info, warn};
+use log::{info, trace, warn};
 use tokio::{net::TcpStream, time::timeout};
 use uuid::Uuid;
 
@@ -36,7 +36,7 @@ pub async fn run() -> Result<(), Error> {
         match msg.unwrap() {
             Message::InitPort(_) => info!("unexpected init"),
             Message::Auth(_) => warn!("unexpected auth"),
-            Message::Heartbeat => debug!("server check heartbeat"),
+            Message::Heartbeat => trace!("server check heartbeat"),
             Message::Error(e) => return Err(Error::new(ErrorKind::Other, e)),
             Message::Connect(id) => {
                 tokio::spawn(async move {

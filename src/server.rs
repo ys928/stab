@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::config::G_CFG;
 use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
 use chrono::Local;
-use log::{debug, info, warn};
+use log::{info, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
@@ -177,7 +177,7 @@ async fn init_port(
             .recv_self_timeout(Duration::from_millis(200))
             .await;
         if msg.is_ok() {
-            debug!("{} >> {:?}", addr.to_string(), msg.unwrap());
+            trace!("{} >> {:?}", addr.to_string(), msg.unwrap());
         }
 
         let proxy_conn = timeout(NETWORK_TIMEOUT, listener.accept()).await;

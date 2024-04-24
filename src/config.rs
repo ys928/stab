@@ -34,6 +34,10 @@ pub struct StabArgs {
     #[clap(short, long, value_name = "control port", default_value_t = 5746)]
     pub contrl_port: u16,
 
+    /// the log level,1=error,2=warn,3=info,4=debug,5=trace
+    #[clap(long, value_name = "log level", default_value_t = 5)]
+    pub log: u8,
+
     /// an optional secret for authentication
     #[clap(short, long, value_name = "secret")]
     pub secret: Option<String>,
@@ -73,7 +77,7 @@ pub struct Link {
     pub remote_port: u16,
 }
 
-/// parse config from command line arguments
+/// parse config from command line arguments,must first be called
 pub fn init_config() {
     let mut args = StabArgs::parse();
     // hash secret
@@ -95,14 +99,23 @@ pub fn init_log() {
 
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(con)))
-        .build(
-            Root::builder()
-                .appender("stdout")
-                .build(log::LevelFilter::Debug),
-        )
+        .build(Root::builder().appender("stdout").build(log_level()))
         .unwrap();
 
     let _ = log4rs::init_config(config).unwrap();
+}
+
+/// get the log level from the config
+fn log_level() -> log::LevelFilter {
+    let log_level = G_CFG.get().unwrap().log;
+    match log_level {
+        1 => log::LevelFilter::Error,
+        2 => log::LevelFilter::Warn,
+        3 => log::LevelFilter::Info,
+        4 => log::LevelFilter::Debug,
+        5 => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Trace,
+    }
 }
 
 /// config the style of help info
