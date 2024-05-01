@@ -17,11 +17,7 @@ async fn main() {
     config::init_config();
     config::init_log();
     match G_CFG.get().unwrap().mode {
-        config::Mode::Local => {
-            client::run().await.unwrap_or_else(|e| {
-                error!("{}", e);
-            });
-        }
+        config::Mode::Local => client::run().await,
         config::Mode::Server => {
             tokio::spawn(async {
                 web::run().await;

@@ -9,6 +9,7 @@ use anstyle::{
 };
 use clap::{Parser, ValueEnum};
 
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use log4rs::{
@@ -19,7 +20,26 @@ use log4rs::{
 };
 
 /// global configuration
-pub static G_CFG: OnceLock<StabArgs> = OnceLock::new();
+pub static G_CFG: OnceLock<StabConfig> = OnceLock::new();
+
+/// global configuration
+#[derive(Debug)]
+pub struct StabConfig {
+    /// run mode
+    pub mode: Mode,
+    /// control port
+    pub port: u16,
+    /// log level
+    pub log: u8,
+    /// an optional secret for authentication
+    pub secret: Option<String>,
+    /// client mode,all link to server
+    pub links: Vec<Link>,
+    /// server mode,port range
+    pub port_range: Range<u16>,
+    /// web manage server port
+    pub web_port: u16,
+}
 
 /// the command line arguments
 #[derive(Parser, Debug)]
@@ -28,34 +48,38 @@ pub static G_CFG: OnceLock<StabArgs> = OnceLock::new();
 pub struct StabArgs {
     /// run mode
     #[clap(value_enum)]
-    pub mode: Mode,
+    pub mode: Option<Mode>,
+
+    /// config file
+    #[clap(short, long)]
+    pub file: Option<String>,
 
     /// the control port
-    #[clap(short, long, value_name = "control port", default_value_t = 5746)]
-    pub contrl_port: u16,
+    #[clap(short, long, value_name = "control port")]
+    pub control_port: Option<u16>,
 
     /// the log level,1=error,2=warn,3=info,4=debug,5=trace
-    #[clap(long, value_name = "log level", default_value_t = 5)]
-    pub log: u8,
+    #[clap(long, value_name = "log level")]
+    pub log: Option<u8>,
 
     /// an optional secret for authentication
     #[clap(short, long, value_name = "secret")]
     pub secret: Option<String>,
 
-    /// create a link from the local to the server
-    #[clap(short,long,value_name = "local mode",value_parser=parse_link,default_value = "127.0.0.1:8080=127.0.0.1:0")]
-    pub link: Link,
+    /// create a link from the local to the server,for example: 8000=www.example.com
+    #[clap(short,long,value_name = "local mode",value_parser=parse_link)]
+    pub link: Option<Link>,
 
     /// accepted TCP port number range
-    #[clap(short, long,value_name = "server mode", value_parser = parse_range,default_value="1024-65535")]
-    pub port_range: Range<u16>,
+    #[clap(short, long,value_name = "server mode", value_parser = parse_range)]
+    pub port_range: Option<Range<u16>>,
 
     /// web manage server port
-    #[clap(short, long, value_name = "server mode", default_value = "3000")]
-    pub web_port: u16,
+    #[clap(short, long, value_name = "server mode")]
+    pub web_port: Option<u16>,
 }
 /// the run mode
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, ValueEnum, Deserialize, PartialEq)]
 pub enum Mode {
     /// local mode
     Local,
@@ -77,16 +101,117 @@ pub struct Link {
     pub remote_port: u16,
 }
 
+/// File configuration
+#[derive(Deserialize, Default)]
+pub struct FileConfig {
+    /// run mode
+    mode: Option<Mode>,
+    /// control port
+    port: Option<u16>,
+    /// the secret
+    secret: Option<String>,
+    /// the log level
+    log: Option<u8>,
+    /// the client config
+    client: Option<ClientConfig>,
+    /// the server config
+    server: Option<ServerConfig>,
+}
+
+/// Client configuration
+#[derive(Deserialize)]
+pub struct ClientConfig {
+    /// all link to server
+    links: Option<Vec<String>>,
+}
+
+/// Server configuration
+#[derive(Deserialize)]
+pub struct ServerConfig {
+    /// the web port
+    web_port: Option<u16>,
+}
+
 /// parse config from command line arguments,must first be called
 pub fn init_config() {
     let mut args = StabArgs::parse();
+
+    // default config
+    let mut stab_config = StabConfig {
+        mode: Mode::Local,
+        port: 5656,
+        log: 5,
+        secret: None,
+        links: Vec::new(),
+        port_range: 1024..65535,
+        web_port: 3400,
+    };
+
+    if args.file.is_some() {
+        let f = &args.file.unwrap();
+        let cfg_str = std::fs::read_to_string(f);
+        if cfg_str.is_err() {
+            panic!("{:?}", cfg_str.unwrap_err());
+        }
+        let cfg_str = cfg_str.unwrap();
+
+        let file_config = toml::from_str(&cfg_str);
+
+        if let Err(e) = file_config {
+            panic!("parse config file failed {}", e);
+        }
+
+        let file_config: FileConfig = file_config.unwrap();
+
+        stab_config.mode = file_config.mode.unwrap_or(stab_config.mode);
+
+        stab_config.port = file_config.port.unwrap_or(stab_config.port);
+
+        stab_config.log = file_config.log.unwrap_or(stab_config.log);
+
+        if let Some(s) = file_config.secret {
+            let hashed_secret = Sha256::new().chain_update(s).finalize();
+            stab_config.secret = Some(format!("{:x}", hashed_secret));
+        }
+
+        if let Some(s) = file_config.server {
+            stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
+        }
+
+        if let Some(c) = file_config.client {
+            if c.links.is_some() {
+                for link in c.links.unwrap().iter() {
+                    let lin = parse_link(&link);
+                    if lin.is_err() {
+                        panic!("parse link failed: {:?}", link);
+                    }
+                    stab_config.links.push(lin.unwrap());
+                }
+            }
+        }
+    }
+
+    stab_config.mode = args.mode.unwrap_or(stab_config.mode);
+
+    stab_config.port = args.control_port.unwrap_or(stab_config.port);
+
+    stab_config.log = args.log.unwrap_or(stab_config.log);
+
     // hash secret
     if let Some(secret) = args.secret {
         let hashed_secret = Sha256::new().chain_update(secret).finalize();
         args.secret = Some(format!("{:x}", hashed_secret));
     }
 
-    G_CFG.get_or_init(|| args);
+    if let Some(link) = args.link {
+        stab_config.links.push(link);
+    }
+
+    if stab_config.mode == Mode::Local && stab_config.links.is_empty() {
+        panic!("No provide links");
+    }
+
+    G_CFG.get_or_init(|| stab_config);
 }
 
 /// config the log
@@ -107,8 +232,9 @@ pub fn init_log() {
 
 /// get the log level from the config
 fn log_level() -> log::LevelFilter {
-    let log_level = G_CFG.get().unwrap().log;
-    match log_level {
+    let f_cfg = G_CFG.get().unwrap();
+
+    match f_cfg.log {
         1 => log::LevelFilter::Error,
         2 => log::LevelFilter::Warn,
         3 => log::LevelFilter::Info,

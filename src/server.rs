@@ -55,7 +55,7 @@ pub async fn run() -> Result<(), Error> {
         *ctl_conns = Some(HashMap::new());
     }
 
-    let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().contrl_port);
+    let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
     let control_listener = TcpListener::bind(&addr).await?;
 
