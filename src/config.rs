@@ -113,14 +113,14 @@ pub struct FileConfig {
     /// the log level
     log: Option<u8>,
     /// the client config
-    client: Option<ClientConfig>,
+    client: Option<LocalConfig>,
     /// the server config
     server: Option<ServerConfig>,
 }
 
 /// Client configuration
 #[derive(Deserialize)]
-pub struct ClientConfig {
+pub struct LocalConfig {
     /// all link to server
     links: Option<Vec<String>>,
 }
@@ -138,7 +138,7 @@ pub fn init_config() {
 
     // default config
     let mut stab_config = StabConfig {
-        mode: Mode::Local,
+        mode: Mode::Server,
         port: 5656,
         log: 5,
         secret: None,

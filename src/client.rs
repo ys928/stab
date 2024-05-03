@@ -3,7 +3,7 @@
 use std::io::{Error, ErrorKind};
 
 use log::{error, info, trace, warn};
-use tokio::{net::TcpStream, time::timeout};
+use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
 use uuid::Uuid;
 
 use crate::{
@@ -15,38 +15,23 @@ use crate::{
 pub async fn run() {
     let links = &G_CFG.get().unwrap().links;
     let port = G_CFG.get().unwrap().port;
-    let mut joins = Vec::new();
+    let mut joins: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
     for link in links.iter() {
         let join = tokio::spawn(async move {
-            let stream = connect_with_timeout(&link.remote_host, port).await;
-            if stream.is_err() {
-                error!("Failed to connect to remote host:{}", stream.unwrap_err());
-                return;
-            }
-            let stream = stream.unwrap();
+            let stream = connect_with_timeout(&link.remote_host, port).await?;
+
             let mut frame_stream = FrameStream::new(stream);
 
-            let ret = auth(&mut frame_stream).await;
+            let _ = auth(&mut frame_stream).await?;
 
-            if let Err(e) = ret {
-                error!("auth failed:{e}");
-                return;
-            }
-
-            let ret = init_port(&mut frame_stream, link).await;
-
-            if let Err(e) = ret {
-                error!("init port failed:{e}");
-                return;
-            }
+            let _ = init_port(&mut frame_stream, link).await?;
 
             loop {
                 // sure connection is established
                 let ret = frame_stream.send(&Message::Heartbeat).await;
 
-                if let Err(e) = ret {
-                    error!("heartbeat failed:{e}");
-                    return;
+                if ret.is_err() {
+                    return Err(Error::new(ErrorKind::ConnectionAborted, "heartbeat failed"));
                 }
 
                 let msg = frame_stream.recv_timeout().await;
@@ -59,8 +44,7 @@ pub async fn run() {
                     Message::Auth(_) => warn!("unexpected auth"),
                     Message::Heartbeat => trace!("server check heartbeat"),
                     Message::Error(e) => {
-                        error!("{}", e);
-                        return;
+                        return Err(Error::new(ErrorKind::Other, e));
                     }
                     Message::Connect(id) => {
                         tokio::spawn(async move {
@@ -78,7 +62,10 @@ pub async fn run() {
         joins.push(join);
     }
     for join in joins {
-        let _ = join.await;
+        let ret = join.await;
+        if ret.is_err() {
+            error!("{}", ret.unwrap_err());
+        }
     }
 }
 
