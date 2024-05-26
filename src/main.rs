@@ -6,7 +6,7 @@
 use config::G_CFG;
 use log::error;
 
-pub mod client;
+pub mod local;
 pub mod config;
 pub mod server;
 pub mod share;
@@ -17,7 +17,7 @@ async fn main() {
     config::init_config();
     config::init_log();
     match G_CFG.get().unwrap().mode {
-        config::Mode::Local => client::run().await,
+        config::Mode::Local => local::run().await,
         config::Mode::Server => {
             tokio::spawn(async {
                 web::run().await;

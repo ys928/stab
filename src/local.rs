@@ -1,4 +1,4 @@
-//! the client module code
+//! the local module code
 
 use std::io::{Error, ErrorKind};
 
@@ -11,60 +11,63 @@ use crate::{
     share::{proxy, FrameStream, Message, NETWORK_TIMEOUT},
 };
 
-/// run a client
+/// run client
 pub async fn run() {
     let links = &G_CFG.get().unwrap().links;
     let port = G_CFG.get().unwrap().port;
     let mut joins: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
     for link in links.iter() {
-        let join = tokio::spawn(async move {
-            let stream = connect_with_timeout(&link.remote_host, port).await?;
-
-            let mut frame_stream = FrameStream::new(stream);
-
-            let _ = auth(&mut frame_stream).await?;
-
-            let _ = init_port(&mut frame_stream, link).await?;
-
-            loop {
-                // sure connection is established
-                let ret = frame_stream.send(&Message::Heartbeat).await;
-
-                if ret.is_err() {
-                    return Err(Error::new(ErrorKind::ConnectionAborted, "heartbeat failed"));
-                }
-
-                let msg = frame_stream.recv_timeout().await;
-                if msg.is_err() {
-                    continue;
-                }
-
-                match msg.unwrap() {
-                    Message::InitPort(_) => info!("unexpected init"),
-                    Message::Auth(_) => warn!("unexpected auth"),
-                    Message::Heartbeat => trace!("server check heartbeat"),
-                    Message::Error(e) => {
-                        return Err(Error::new(ErrorKind::Other, e));
-                    }
-                    Message::Connect(id) => {
-                        tokio::spawn(async move {
-                            info!("new connection");
-                            match handle_proxy_connection(id, link).await {
-                                Ok(_) => info!("connection exited"),
-                                Err(err) => warn!("connection exited with error {}", err),
-                            }
-                        });
-                    }
-                }
-            }
-        });
-
+        let join = tokio::spawn(create_link(link, port));
         joins.push(join);
     }
     for join in joins {
         let ret = join.await;
         if ret.is_err() {
             error!("{}", ret.unwrap_err());
+        }
+    }
+}
+
+/// begin a connect
+async fn create_link(link: &Link, port: u16) -> Result<(), Error> {
+    let stream = connect_with_timeout(&link.remote_host, port).await?;
+
+    let mut frame_stream = FrameStream::new(stream);
+
+    let _ = auth(&mut frame_stream).await?;
+
+    let _ = init_port(&mut frame_stream, link).await?;
+
+    loop {
+        // sure connection is established
+        let ret = frame_stream.send(&Message::Heartbeat).await;
+
+        if ret.is_err() {
+            return Err(Error::new(ErrorKind::ConnectionAborted, "heartbeat failed"));
+        }
+
+        let msg = frame_stream.recv_timeout().await;
+        if msg.is_err() {
+            continue;
+        }
+
+        match msg.unwrap() {
+            Message::InitPort(_) => info!("unexpected init"),
+            Message::Auth(_) => warn!("unexpected auth"),
+            Message::Heartbeat => trace!("server check heartbeat"),
+            Message::Error(e) => {
+                return Err(Error::new(ErrorKind::Other, e));
+            }
+            Message::Connect(id) => {
+                let link = link.clone();
+                tokio::spawn(async move {
+                    info!("new connection");
+                    match handle_proxy_connection(id, &link).await {
+                        Ok(_) => info!("connection exited"),
+                        Err(err) => warn!("connection exited with error {}", err),
+                    }
+                });
+            }
         }
     }
 }

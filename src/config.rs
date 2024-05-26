@@ -102,7 +102,7 @@ pub struct Link {
 }
 
 /// File configuration
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Debug)]
 pub struct FileConfig {
     /// run mode
     mode: Option<Mode>,
@@ -113,20 +113,20 @@ pub struct FileConfig {
     /// the log level
     log: Option<u8>,
     /// the client config
-    client: Option<LocalConfig>,
+    local: Option<LocalConfig>,
     /// the server config
     server: Option<ServerConfig>,
 }
 
 /// Client configuration
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct LocalConfig {
     /// all link to server
     links: Option<Vec<String>>,
 }
 
 /// Server configuration
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct ServerConfig {
     /// the web port
     web_port: Option<u16>,
@@ -173,12 +173,11 @@ pub fn init_config() {
             let hashed_secret = Sha256::new().chain_update(s).finalize();
             stab_config.secret = Some(format!("{:x}", hashed_secret));
         }
-
         if let Some(s) = file_config.server {
             stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
         }
 
-        if let Some(c) = file_config.client {
+        if let Some(c) = file_config.local {
             if c.links.is_some() {
                 for link in c.links.unwrap().iter() {
                     let lin = parse_link(&link);
