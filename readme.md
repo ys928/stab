@@ -49,13 +49,13 @@ stab server -c 7777
 然后你可以在本地运行下面这条命令：
 
 ```bash
-stab local -p --link 8000=server.com
+stab local -l 8000=server.com
 ```
 
 上面命令为简写形式，其完整的格式为：
 
 ```bash
-stab local -p --link 127.0.0.1:8000=server.com:0
+stab local --link 127.0.0.1:8000=server.com:0
 ```
 
 该命令会把你的本地`127.0.0.1:8000`端口与你的`server.com:0`进行链接，这是默认行为，此时端口将由服务器自动分配。
@@ -63,7 +63,7 @@ stab local -p --link 127.0.0.1:8000=server.com:0
 当然你也可以指定服务器需要暴露端口：
 
 ```bash
-stab local -p --link 127.0.0.1:8000=server.com:7878
+stab local --link 127.0.0.1:8000=server.com:7878
 ```
 
 如果你的服务器更改了默认的控制端口，那么这里也应该更改：
