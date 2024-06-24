@@ -130,6 +130,8 @@ pub struct LocalConfig {
 pub struct ServerConfig {
     /// the web port
     web_port: Option<u16>,
+    /// port range to use
+    port_range: Option<String>,
 }
 
 /// parse config from command line arguments,must first be called
@@ -175,6 +177,8 @@ pub fn init_config() {
         }
         if let Some(s) = file_config.server {
             stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
+            let p_range = s.port_range.unwrap_or("1024-65535".to_string());
+            stab_config.port_range = parse_range(p_range.as_str()).unwrap();
         }
 
         if let Some(c) = file_config.local {
