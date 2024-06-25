@@ -121,6 +121,7 @@ log = 5 # Set log level: 1-5, default is 5
 
 [server]
 web_port = 80 # Set web port
+port_range = "2000-3000" # Set the range of ports allowed to use
 ```
 
 Apply this configuration file:
@@ -139,8 +140,11 @@ log = 5                # Set log level: 1-5, default is 5
 
 [local]
 links = [
-    "8080=server.com:1900",
-    "8081=server.com:1901",
+    "127.0.0.1:8080=server.com:2000",  # Complete writing method
+    "8080=server.com:1900",            # Equivalent to: 127.0.0.1:8080=server.com:1900
+    "8081=server.com",                 # Equivalent to: 127.0.0.1:8081=server.com:0
+    "8082=2001",                       # Equivalent to: 127.0.0.1:8082={to}:2001
+    "8083",                            # Equivalent to: 127.0.0.1:8083={to}:0
 ] # Set the links to be established with the server, supporting multiple links simultaneously
 
 ```

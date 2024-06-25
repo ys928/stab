@@ -115,13 +115,14 @@ stab local -l 8000=your.server.com -s test
 服务器配置文件实例`server.toml`：
 
 ```toml
-mode = "Server" # 选择服务器模式
-port = 5959 # 设置控制端口
+mode = "Server"        # 选择服务器模式
+port = 5959            # 设置控制端口
 secret = "test secret" # 设置密钥
-log = 5 # 设置日志等级：1-5，默认为5
+log = 5                # 设置日志等级：1-5，默认为5
 
 [server]
-web_port = 80 # 设置web端口
+web_port = 80            # 设置web端口
+port_range = "2000-3000" # 设置允许使用的端口范围
 ```
 
 应用该配置文件：
@@ -139,9 +140,13 @@ secret = "test secret" # 设置密钥
 log = 5                # 设置日志等级：1-5，默认为5
 
 [local]
+to = "server.com"       # 设置默认服务器
 links = [
-    "8080=server.com:1900",
-    "8081=server.com:1901",
+    "127.0.0.1:8080=server.com:2000",  # 完整写法
+    "8080=server.com:1900",            # 等价于：127.0.0.1:8080=server.com:1900
+    "8081=server.com",                 # 等价于：127.0.0.1:8081=server.com:0
+    "8082=2001",                       # 等价于：127.0.0.1:8082={to}:2001
+    "8083",                            # 等价于：127.0.0.1:8083={to}:0
 ] # 设置将要与服务器建立的链接，支持同时建立多个链接
 ```
 
