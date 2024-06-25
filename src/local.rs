@@ -35,7 +35,7 @@ pub async fn run() {
 
 /// begin a connect
 async fn create_link(link: &Link, port: u16) -> Result<(), Error> {
-    let stream = connect_with_timeout(&link.remote_host, port).await?;
+    let stream = connect_with_timeout(&link.remote.host, port).await?;
 
     let mut frame_stream = FrameStream::new(stream);
 
@@ -98,14 +98,14 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
 /// send and recv InitPort message with server
 async fn init_port(frame_stream: &mut FrameStream, link: &Link) -> Result<(), Error> {
     frame_stream
-        .send(&Message::InitPort(link.remote_port))
+        .send(&Message::InitPort(link.remote.port))
         .await?;
     let msg = frame_stream.recv_timeout().await?;
     match msg {
         Message::InitPort(port) => {
             info!(
                 "{}:{} link to {}:{}",
-                link.local_host, link.local_port, link.remote_host, port
+                link.local.host, link.local.port, link.remote.host, port
             );
             Ok(())
         }
@@ -125,14 +125,14 @@ async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream, Error>
 
 /// deal connection from server proxy port
 async fn handle_proxy_connection(id: Uuid, link: &Link) -> Result<(), Error> {
-    let stream = connect_with_timeout(&link.remote_host, G_CFG.get().unwrap().port).await?;
+    let stream = connect_with_timeout(&link.remote.host, G_CFG.get().unwrap().port).await?;
     let mut frame_stream = FrameStream::new(stream);
 
     auth(&mut frame_stream).await?;
 
     frame_stream.send(&Message::Connect(id)).await?;
 
-    let local = connect_with_timeout(&link.local_host, link.local_port).await?;
+    let local = connect_with_timeout(&link.local.host, link.local.port).await?;
 
     proxy(local, frame_stream.stream()).await?;
 

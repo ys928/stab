@@ -44,7 +44,7 @@ pub struct StabConfig {
 /// the command line arguments
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
-#[command(styles=help_styles())]
+#[command(styles=cmd_help_styles())]
 pub struct StabArgs {
     /// run mode
     #[clap(value_enum)]
@@ -71,7 +71,7 @@ pub struct StabArgs {
     pub link: Option<Link>,
 
     /// accepted TCP port number range
-    #[clap(short, long,value_name = "server mode", value_parser = parse_range)]
+    #[clap(short, long,value_name = "server mode", value_parser = cmd_parse_range)]
     pub port_range: Option<Range<u16>>,
 
     /// web manage server port
@@ -90,15 +90,20 @@ pub enum Mode {
 
 /// a link between a local port and a server port
 #[derive(Debug, Clone, Default)]
+pub struct Address {
+    /// host
+    pub host: String,
+    /// port
+    pub port: u16,
+}
+
+/// a link between a local port and a server port
+#[derive(Debug, Clone, Default)]
 pub struct Link {
-    /// local host
-    pub local_host: String,
-    /// local port
-    pub local_port: u16,
-    /// server host
-    pub remote_host: String,
-    /// server port
-    pub remote_port: u16,
+    /// local
+    pub local: Address,
+    /// server
+    pub remote: Address,
 }
 
 /// File configuration
@@ -180,19 +185,14 @@ pub fn init_config() {
         if let Some(s) = file_config.server {
             stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
             let p_range = s.port_range.unwrap_or("1024-65535".to_string());
-            stab_config.port_range = parse_range(p_range.as_str()).unwrap();
+            stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
         }
 
         if let Some(c) = file_config.local {
             if c.links.is_some() {
                 for link in c.links.unwrap().iter() {
                     let lin = parse_link(&link, c.to.as_deref());
-                    if lin.is_err() && c.to.is_some() {
-                        let port = link.parse::<u16>();
-                        if port.is_err() {
-                            panic!("parse link failed: {:?}", link);
-                        } else {
-                        }
+                    if lin.is_err() {
                         panic!("parse link failed: {:?}", link);
                     }
                     stab_config.links.push(lin.unwrap());
@@ -255,7 +255,7 @@ fn log_level() -> log::LevelFilter {
 }
 
 /// config the style of help info
-fn help_styles() -> clap::builder::Styles {
+fn cmd_help_styles() -> clap::builder::Styles {
     clap::builder::Styles::styled()
         .usage(Style::new().fg_color(Some(Ansi(BrightBlue))))
         .header(Style::new().fg_color(Some(Ansi(BrightBlue))))
@@ -267,7 +267,7 @@ fn help_styles() -> clap::builder::Styles {
 }
 
 /// parse port range
-fn parse_range(s: &str) -> Result<Range<u16>, String> {
+fn cmd_parse_range(s: &str) -> Result<Range<u16>, String> {
     let err_msg = "parse port range failed".to_string();
 
     let p: Vec<&str> = s.split("-").collect();
@@ -296,64 +296,92 @@ fn cmd_parse_link(raw_link: &str) -> Result<Link, String> {
 
 fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link, String> {
     let err_msg = "parse link failed,format: 80=stab.com or localhost:80=stab.com:8989".to_string();
+    let mut link = Link::default();
 
     let addrs: Vec<&str> = raw_link.split("=").collect();
+
+    // only port
+    if addrs.len() == 1 && to.is_some() {
+        // parse local address
+        let local_addr = parse_address(addrs[0], Some("127.0.0.1"), None);
+        if local_addr.is_none() {
+            return Err(err_msg);
+        }
+        let local_addr = local_addr.unwrap();
+
+        let remote_addr = Address {
+            host: to.unwrap().to_string(),
+            port: 0,
+        };
+        link.local = local_addr;
+        link.remote = remote_addr;
+        return Ok(link);
+    }
+
     if addrs.len() != 2 {
         return Err(err_msg);
     }
     let local_addr = addrs[0];
     let remote_addr = addrs[1];
 
-    let mut link = Link::default();
-    // parse local address
-    let pos = local_addr.find(":");
-    if pos.is_none() {
-        let port = local_addr.parse::<u16>();
-        if port.is_err() {
-            return Err(err_msg);
-        }
-        link.local_host = "127.0.0.1".to_string();
-        link.local_port = port.unwrap();
-    } else {
-        let addr: Vec<&str> = local_addr.split(":").collect();
-        if addr.len() != 2 {
-            return Err(err_msg);
-        }
-        let port = addr[1].parse::<u16>();
-        if port.is_err() {
-            return Err(err_msg);
-        }
-        link.local_host = addr[0].to_string();
-        link.local_port = port.unwrap();
+    let local_addr = parse_address(local_addr, Some("127.0.0.1"), None);
+    if local_addr.is_none() {
+        return Err(err_msg);
     }
+    let local_addr = local_addr.unwrap();
+
     // pares remote address
-    let pos = remote_addr.find(":");
-    if pos.is_none() {
-        let port = remote_addr.parse::<u16>();
-        if port.is_err() {
-            link.remote_host = remote_addr.to_string();
-            link.remote_port = 0;
-            return Ok(link);
-        } else {
-            if to.is_some() {
-                let port = port.unwrap();
-                link.remote_host = to.unwrap().to_string();
-                link.remote_port = port;
-                return Ok(link);
-            }
-            return Err(err_msg);
-        }
-    } else {
-        let addr: Vec<&str> = remote_addr.split(":").collect();
-        if addr.len() != 2 {
-            return Err(err_msg);
-        }
-        let port = addr[1].parse::<u16>();
-        if port.is_err() {
-            return Err(err_msg);
-        }
-        link.remote_host = addr[0].to_string();
-        link.remote_port = port.unwrap();
-        return Ok(link);
+    let remote_addr = parse_address(remote_addr, to, Some(0));
+    if remote_addr.is_none() {
+        return Err(err_msg);
     }
+    let remote_addr = remote_addr.unwrap();
+    link.local = local_addr;
+    link.remote = remote_addr;
+    return Ok(link);
+}
+
+fn parse_address(
+    addr: &str,
+    default_host: Option<&str>,
+    default_port: Option<u16>,
+) -> Option<Address> {
+    let addr: Vec<&str> = addr.split(":").collect();
+
+    if addr.len() > 2 {
+        return None;
+    }
+    // host or port
+    if addr.len() == 1 {
+        let port = addr[0].parse::<u16>();
+        if port.is_err() {
+            let host = addr[0].to_string();
+            if default_port.is_none() {
+                return None;
+            }
+            return Some(Address {
+                host,
+                port: default_port.unwrap(),
+            });
+        } else {
+            let port = port.unwrap();
+            if default_host.is_none() {
+                return None;
+            }
+            return Some(Address {
+                host: default_host.unwrap().to_string(),
+                port,
+            });
+        }
+    }
+
+    // host:port
+    let port = addr[1].parse::<u16>();
+    if port.is_err() {
+        return None;
+    }
+    return Some(Address {
+        host: addr[0].to_string(),
+        port: port.unwrap(),
+    });
 }
