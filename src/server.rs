@@ -133,7 +133,7 @@ async fn init_port(
         Ok(listener) => listener,
         Err(e) => {
             frame_stream.send(&Message::Error(e.to_string())).await?;
-            return Ok(());
+            return Err(Error::new(ErrorKind::AddrNotAvailable, e));
         }
     };
     let port = listener.local_addr().unwrap().port();

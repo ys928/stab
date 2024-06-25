@@ -67,7 +67,7 @@ pub struct StabArgs {
     pub secret: Option<String>,
 
     /// create a link from the local to the server,for example: 8000=www.example.com
-    #[clap(short,long,value_name = "local mode",value_parser=parse_link)]
+    #[clap(short,long,value_name = "local mode",value_parser=cmd_parse_link)]
     pub link: Option<Link>,
 
     /// accepted TCP port number range
@@ -123,6 +123,8 @@ pub struct FileConfig {
 pub struct LocalConfig {
     /// all link to server
     links: Option<Vec<String>>,
+    /// default server
+    to: Option<String>,
 }
 
 /// Server configuration
@@ -184,8 +186,13 @@ pub fn init_config() {
         if let Some(c) = file_config.local {
             if c.links.is_some() {
                 for link in c.links.unwrap().iter() {
-                    let lin = parse_link(&link);
-                    if lin.is_err() {
+                    let lin = parse_link(&link, c.to.as_deref());
+                    if lin.is_err() && c.to.is_some() {
+                        let port = link.parse::<u16>();
+                        if port.is_err() {
+                            panic!("parse link failed: {:?}", link);
+                        } else {
+                        }
                         panic!("parse link failed: {:?}", link);
                     }
                     stab_config.links.push(lin.unwrap());
@@ -283,7 +290,11 @@ fn parse_range(s: &str) -> Result<Range<u16>, String> {
     Ok(min..max)
 }
 
-fn parse_link(raw_link: &str) -> Result<Link, String> {
+fn cmd_parse_link(raw_link: &str) -> Result<Link, String> {
+    parse_link(raw_link, None)
+}
+
+fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link, String> {
     let err_msg = "parse link failed,format: 80=stab.com or localhost:80=stab.com:8989".to_string();
 
     let addrs: Vec<&str> = raw_link.split("=").collect();
@@ -318,9 +329,20 @@ fn parse_link(raw_link: &str) -> Result<Link, String> {
     // pares remote address
     let pos = remote_addr.find(":");
     if pos.is_none() {
-        link.remote_host = remote_addr.to_string();
-        link.remote_port = 0;
-        return Ok(link);
+        let port = remote_addr.parse::<u16>();
+        if port.is_err() {
+            link.remote_host = remote_addr.to_string();
+            link.remote_port = 0;
+            return Ok(link);
+        } else {
+            if to.is_some() {
+                let port = port.unwrap();
+                link.remote_host = to.unwrap().to_string();
+                link.remote_port = port;
+                return Ok(link);
+            }
+            return Err(err_msg);
+        }
     } else {
         let addr: Vec<&str> = remote_addr.split(":").collect();
         if addr.len() != 2 {

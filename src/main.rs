@@ -6,8 +6,8 @@
 use config::G_CFG;
 use log::error;
 
-pub mod local;
 pub mod config;
+pub mod local;
 pub mod server;
 pub mod share;
 pub mod web;

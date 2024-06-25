@@ -24,6 +24,11 @@ pub async fn run() {
         let ret = join.await;
         if ret.is_err() {
             error!("{}", ret.unwrap_err());
+        } else {
+            let ret = ret.unwrap();
+            if ret.is_err() {
+                error!("{}", ret.unwrap_err());
+            }
         }
     }
 }
