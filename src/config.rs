@@ -39,6 +39,8 @@ pub struct StabConfig {
     pub port_range: Range<u16>,
     /// web manage server port
     pub web_port: u16,
+    /// The maximum duration of time each tcp link proxy stays in the server
+    pub duration: u64,
 }
 
 /// the command line arguments
@@ -139,6 +141,8 @@ pub struct ServerConfig {
     web_port: Option<u16>,
     /// port range to use
     port_range: Option<String>,
+    /// The maximum duration of time each tcp link proxy stays in the server
+    duration: Option<u64>,
 }
 
 /// parse config from command line arguments,must first be called
@@ -154,6 +158,7 @@ pub fn init_config() {
         links: Vec::new(),
         port_range: 1024..65535,
         web_port: 3400,
+        duration: 15,
     };
 
     if args.file.is_some() {
@@ -186,6 +191,7 @@ pub fn init_config() {
             stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
             let p_range = s.port_range.unwrap_or("1024-65535".to_string());
             stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
+            stab_config.duration = s.duration.unwrap_or(stab_config.duration);
         }
 
         if let Some(c) = file_config.local {

@@ -122,6 +122,7 @@ log = 5 # Set log level: 1-5, default is 5
 [server]
 web_port = 80 # Set web port
 port_range = "2000-3000" # Set the range of ports allowed to use
+duration = 15            # Set the maximum retention time of each tcp proxy data link (non-control link) on the server, in seconds. If it is not filled in, the default time will be 15 seconds. If it exceeds this time, it will be automatically removed and disconnected. 
 ```
 
 Apply this configuration file:
@@ -139,6 +140,7 @@ secret = "test secret" # Set secret key
 log = 5                # Set log level: 1-5, default is 5
 
 [local]
+to = "server.com"       # Set the default server
 links = [
     "127.0.0.1:8080=server.com:2000",  # Complete writing method
     "8080=server.com:1900",            # Equivalent to: 127.0.0.1:8080=server.com:1900

@@ -200,7 +200,8 @@ async fn init_port(
 
         tokio::spawn(async move {
             // Remove stale entries to avoid memory leaks.
-            sleep(Duration::from_secs(15)).await;
+            let duration = G_CFG.get().unwrap().duration;
+            sleep(Duration::from_secs(duration)).await;
             let mut conns = CLI_CONNS.lock().unwrap();
             if conns.as_mut().unwrap().remove(&id).is_some() {
                 warn!("removed stale connection {}", id);
