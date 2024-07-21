@@ -14,7 +14,7 @@ use uuid::Uuid;
 /// Timeout for network connections.
 pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Messages exchanged between the client and the server
+/// Messages exchanged between the Local and the server
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
     /// init connect and specify port

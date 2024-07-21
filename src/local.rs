@@ -11,7 +11,7 @@ use crate::{
     share::{proxy, FrameStream, Message, NETWORK_TIMEOUT},
 };
 
-/// run client
+/// run local
 pub async fn run() {
     let links = &G_CFG.get().unwrap().links;
     let port = G_CFG.get().unwrap().port;

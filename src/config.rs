@@ -162,49 +162,7 @@ pub fn init_config() {
     };
 
     if args.file.is_some() {
-        let f = &args.file.unwrap();
-        let cfg_str = std::fs::read_to_string(f);
-        if cfg_str.is_err() {
-            panic!("{:?}", cfg_str.unwrap_err());
-        }
-        let cfg_str = cfg_str.unwrap();
-
-        let file_config = toml::from_str(&cfg_str);
-
-        if let Err(e) = file_config {
-            panic!("parse config file failed {}", e);
-        }
-
-        let file_config: FileConfig = file_config.unwrap();
-
-        stab_config.mode = file_config.mode.unwrap_or(stab_config.mode);
-
-        stab_config.port = file_config.port.unwrap_or(stab_config.port);
-
-        stab_config.log = file_config.log.unwrap_or(stab_config.log);
-
-        if let Some(s) = file_config.secret {
-            let hashed_secret = Sha256::new().chain_update(s).finalize();
-            stab_config.secret = Some(format!("{:x}", hashed_secret));
-        }
-        if let Some(s) = file_config.server {
-            stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
-            let p_range = s.port_range.unwrap_or("1024-65535".to_string());
-            stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
-            stab_config.duration = s.duration.unwrap_or(stab_config.duration);
-        }
-
-        if let Some(c) = file_config.local {
-            if c.links.is_some() {
-                for link in c.links.unwrap().iter() {
-                    let lin = parse_link(&link, c.to.as_deref());
-                    if lin.is_err() {
-                        panic!("parse link failed: {:?}", link);
-                    }
-                    stab_config.links.push(lin.unwrap());
-                }
-            }
-        }
+        init_by_config_file(args.file.unwrap().as_str(), &mut stab_config);
     }
 
     stab_config.mode = args.mode.unwrap_or(stab_config.mode);
@@ -228,6 +186,52 @@ pub fn init_config() {
     }
 
     G_CFG.get_or_init(|| stab_config);
+}
+
+/// init config with file
+pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
+    let cfg_str = std::fs::read_to_string(file);
+    if cfg_str.is_err() {
+        panic!("{:?}", cfg_str.unwrap_err());
+    }
+    let cfg_str = cfg_str.unwrap();
+
+    let file_config = toml::from_str(&cfg_str);
+
+    if let Err(e) = file_config {
+        panic!("parse config file failed {}", e);
+    }
+
+    let file_config: FileConfig = file_config.unwrap();
+
+    stab_config.mode = file_config.mode.unwrap_or(stab_config.mode);
+
+    stab_config.port = file_config.port.unwrap_or(stab_config.port);
+
+    stab_config.log = file_config.log.unwrap_or(stab_config.log);
+
+    if let Some(s) = file_config.secret {
+        let hashed_secret = Sha256::new().chain_update(s).finalize();
+        stab_config.secret = Some(format!("{:x}", hashed_secret));
+    }
+    if let Some(s) = file_config.server {
+        stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
+        let p_range = s.port_range.unwrap_or("1024-65535".to_string());
+        stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
+        stab_config.duration = s.duration.unwrap_or(stab_config.duration);
+    }
+
+    if let Some(c) = file_config.local {
+        if c.links.is_some() {
+            for link in c.links.unwrap().iter() {
+                let lin = parse_link(&link, c.to.as_deref());
+                if lin.is_err() {
+                    panic!("parse link failed: {:?}", link);
+                }
+                stab_config.links.push(lin.unwrap());
+            }
+        }
+    }
 }
 
 /// config the log

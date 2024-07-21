@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::config::G_CFG;
 use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
 use chrono::Local;
-use log::{info, trace, warn};
+use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
@@ -47,7 +47,7 @@ pub static CTL_CONNS: Mutex<Option<HashMap<u16, CtlConInfo>>> = Mutex::new(None)
 static PORT_IDX: AtomicU16 = AtomicU16::new(0);
 
 /// Start the server, listening for new control connections.
-pub async fn run() -> Result<(), Error> {
+pub async fn run() {
     {
         let mut conns = CLI_CONNS.lock().unwrap();
         *conns = Some(HashMap::new());
@@ -57,12 +57,18 @@ pub async fn run() -> Result<(), Error> {
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
-    let control_listener = TcpListener::bind(&addr).await?;
+    let control_listener = TcpListener::bind(&addr).await.unwrap();
 
     info!("server listening {}", addr);
 
     loop {
-        let (stream, addr) = control_listener.accept().await?;
+        let ret = control_listener.accept().await;
+        if ret.is_err() {
+            error!("failed to accept client {}", ret.unwrap_err());
+            continue;
+        }
+
+        let (stream, addr) = ret.unwrap();
 
         tokio::spawn(async move {
             info!("incoming control connection");
