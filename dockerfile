@@ -8,4 +8,4 @@ RUN mkdir /app && apt-get update && apt-get install -y openssl curl && rm -rf /v
 WORKDIR /app/
 COPY --from=builder /app/target/release/stab ./
 EXPOSE 5656 3400
-ENTRYPOINT ["./stab"]
+ENTRYPOINT ["./stab","server"]
