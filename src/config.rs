@@ -160,11 +160,9 @@ pub fn init_config() {
         init_by_config_file(args.file.unwrap().as_str(), &mut stab_config);
     }
 
-    stab_config.mode = args.mode.unwrap_or(stab_config.mode);
-
-    stab_config.port = args.control_port.unwrap_or(stab_config.port);
-
-    stab_config.log = args.log.unwrap_or(stab_config.log);
+    args.mode.map(|m| stab_config.mode = m);
+    args.control_port.map(|c| stab_config.port = c);
+    args.log.map(|l| stab_config.log = l);
 
     // hash secret
     if let Some(secret) = args.secret {
@@ -199,18 +197,16 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
 
     let file_config: FileConfig = file_config.unwrap();
 
-    stab_config.mode = file_config.mode.unwrap_or(stab_config.mode);
-
-    stab_config.port = file_config.port.unwrap_or(stab_config.port);
-
-    stab_config.log = file_config.log.unwrap_or(stab_config.log);
+    file_config.mode.map(|a| stab_config.mode = a);
+    file_config.port.map(|a| stab_config.port = a);
+    file_config.log.map(|l| stab_config.log = l);
 
     if let Some(s) = file_config.secret {
         let hashed_secret = Sha256::new().chain_update(s).finalize();
         stab_config.secret = Some(format!("{:x}", hashed_secret));
     }
     if let Some(s) = file_config.server {
-        stab_config.web_port = s.web_port.unwrap_or(stab_config.web_port);
+        s.web_port.map(|p| stab_config.web_port = p);
         let p_range = s.port_range.unwrap_or("1024-65535".to_string());
         stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
     }
