@@ -4,6 +4,7 @@ use std::io::{Error, ErrorKind};
 
 use log::{error, info, trace, warn};
 use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
+use tracing::{debug_span, Instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -17,7 +18,10 @@ pub async fn run() {
     let port = G_CFG.get().unwrap().port;
     let mut joins: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
     for link in links.iter() {
-        let join = tokio::spawn(create_link(link, port));
+        let join = tokio::spawn(
+            create_link(link, port)
+                .instrument(debug_span!("conn", id = Uuid::new_v4().to_string())),
+        );
         joins.push(join);
     }
     for join in joins {

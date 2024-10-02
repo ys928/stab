@@ -12,13 +12,6 @@ use clap::{Parser, ValueEnum};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use log4rs::{
-    append::console::ConsoleAppender,
-    config::{Appender, Root},
-    encode::pattern::PatternEncoder,
-    Config,
-};
-
 /// global configuration
 pub static G_CFG: OnceLock<StabConfig> = OnceLock::new();
 
@@ -226,31 +219,25 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
 
 /// config the log
 pub fn init_log() {
-    let con = ConsoleAppender::builder()
-        .encoder(Box::new(PatternEncoder::new(
-            "{d(%H:%M:%S)} {h([{l}])} {M}:{L} => {m}{n}",
-        )))
-        .build();
-
-    let config = Config::builder()
-        .appender(Appender::builder().build("stdout", Box::new(con)))
-        .build(Root::builder().appender("stdout").build(log_level()))
-        .unwrap();
-
-    let _ = log4rs::init_config(config).unwrap();
+    tracing_subscriber::fmt()
+        .with_target(true)
+        .with_line_number(true)
+        .with_writer(std::io::stdout)
+        .with_max_level(log_level())
+        .init();
 }
 
 /// get the log level from the config
-fn log_level() -> log::LevelFilter {
+fn log_level() -> tracing::Level {
     let f_cfg = G_CFG.get().unwrap();
 
     match f_cfg.log {
-        1 => log::LevelFilter::Error,
-        2 => log::LevelFilter::Warn,
-        3 => log::LevelFilter::Info,
-        4 => log::LevelFilter::Debug,
-        5 => log::LevelFilter::Trace,
-        _ => log::LevelFilter::Trace,
+        1 => tracing::Level::ERROR,
+        2 => tracing::Level::WARN,
+        3 => tracing::Level::INFO,
+        4 => tracing::Level::DEBUG,
+        5 => tracing::Level::TRACE,
+        _ => tracing::Level::TRACE,
     }
 }
 

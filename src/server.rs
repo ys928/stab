@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, timeout};
+use tracing::{debug_span, Instrument};
 use uuid::Uuid;
 
 /// connection information
@@ -70,14 +71,17 @@ pub async fn run() {
 
         let (stream, addr) = ret.unwrap();
 
-        tokio::spawn(async move {
-            info!("incoming control connection");
-            if let Err(err) = handle_control_connection(stream, addr).await {
-                warn!("control connection {:?} exited with error：{}", addr, err);
-            } else {
-                info!("control connection {:?} exited", addr);
+        tokio::spawn(
+            async move {
+                info!("incoming control connection");
+                if let Err(err) = handle_control_connection(stream, addr).await {
+                    warn!("control connection {:?} exited with error：{}", addr, err);
+                } else {
+                    info!("control connection {:?} exited", addr);
+                }
             }
-        });
+            .instrument(debug_span!("conn", id = Uuid::new_v4().to_string())),
+        );
     }
 }
 
