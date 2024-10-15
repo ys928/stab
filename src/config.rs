@@ -7,6 +7,7 @@ use anstyle::{
     Color::Ansi,
     Style,
 };
+use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 
 use serde::Deserialize;
@@ -135,6 +136,7 @@ pub struct ServerConfig {
 }
 
 /// parse config from command line arguments,must first be called
+#[cfg(not(test))]
 pub fn init_config() {
     let mut args = StabArgs::parse();
 
@@ -171,6 +173,23 @@ pub fn init_config() {
         panic!("No provide links");
     }
 
+    G_CFG.get_or_init(|| stab_config);
+}
+
+#[test]
+pub fn init_config() {
+    let hashed_secret = Sha256::new().chain_update("test secret").finalize();
+    let secret = Some(format!("{:x}", hashed_secret));
+
+    let stab_config = StabConfig {
+        mode: Mode::Server,
+        port: 5656,
+        log: 5,
+        secret,
+        links: Vec::new(),
+        port_range: 1024..65535,
+        web_port: 3400,
+    };
     G_CFG.get_or_init(|| stab_config);
 }
 
@@ -219,7 +238,10 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
 
 /// config the log
 pub fn init_log() {
+    let timer = tracing_subscriber::fmt::time::ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_owned());
+
     tracing_subscriber::fmt()
+        .with_timer(timer)
         .with_target(true)
         .with_line_number(true)
         .with_writer(std::io::stdout)
@@ -254,8 +276,8 @@ fn cmd_help_styles() -> clap::builder::Styles {
 }
 
 /// parse port range
-fn cmd_parse_range(s: &str) -> Result<Range<u16>, String> {
-    let err_msg = "parse port range failed".to_string();
+fn cmd_parse_range(s: &str) -> Result<Range<u16>> {
+    let err_msg = anyhow!("parse port range failed");
 
     let p: Vec<&str> = s.split("-").collect();
     if p.len() != 2 {
@@ -277,12 +299,12 @@ fn cmd_parse_range(s: &str) -> Result<Range<u16>, String> {
     Ok(min..max)
 }
 
-fn cmd_parse_link(raw_link: &str) -> Result<Link, String> {
+fn cmd_parse_link(raw_link: &str) -> Result<Link> {
     parse_link(raw_link, None)
 }
 
-fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link, String> {
-    let err_msg = "parse link failed,format: 80=stab.com or localhost:80=stab.com:8989".to_string();
+fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link> {
+    let err_msg = anyhow!("parse link failed,format: 80=stab.com or localhost:80=stab.com:8989");
     let mut link = Link::default();
 
     let addrs: Vec<&str> = raw_link.split("=").collect();

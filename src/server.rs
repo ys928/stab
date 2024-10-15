@@ -1,6 +1,6 @@
 //! the server mode code
 
-use std::io::{Error, ErrorKind};
+use anyhow::{anyhow, Context, Result};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Mutex;
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, timeout};
-use tracing::{debug_span, Instrument};
+use tracing::{debug, debug_span, Instrument};
 use uuid::Uuid;
 
 /// connection information
@@ -86,7 +86,7 @@ pub async fn run() {
 }
 
 /// deal with control connection
-async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Result<(), Error> {
+async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Result<()> {
     let mut frame_stream = FrameStream::new(stream);
 
     // authentication client
@@ -95,9 +95,15 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
     let msg = frame_stream.recv_timeout().await?;
     match msg {
         Message::InitPort(port) => {
-            let ret = init_port(&mut frame_stream, port, addr).await;
+            let listener = init_port(&mut frame_stream, port, addr)
+                .await
+                .context("init port failed")?;
+
+            let ret = enter_control_loop(listener, &mut frame_stream, port, addr).await;
+
             let mut ctl_conns = CTL_CONNS.lock().unwrap();
             ctl_conns.as_mut().unwrap().remove(&port);
+
             ret?
         }
         Message::Connect(id) => {
@@ -123,11 +129,11 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             frame_stream
                 .send(&Message::Error("unexpected auth".to_string()))
                 .await?;
-            return Err(Error::new(ErrorKind::InvalidData, "unexpect auth message"));
+            return Err(anyhow!("unexpect auth message"));
         }
         _ => {
             warn!("unexpect message: {:?}", msg);
-            return Err(Error::new(ErrorKind::InvalidData, "unexpect msg"));
+            return Err(anyhow!("unexpect msg"));
         }
     }
     Ok(())
@@ -138,33 +144,47 @@ async fn init_port(
     frame_stream: &mut FrameStream,
     port: u16,
     addr: SocketAddr,
-) -> Result<(), Error> {
+) -> Result<TcpListener> {
     let listener = match create_listener(port).await {
         Ok(listener) => listener,
         Err(e) => {
-            frame_stream.send(&Message::Error(e.to_string())).await?;
-            return Err(Error::new(ErrorKind::AddrNotAvailable, e));
+            frame_stream
+                .send(&Message::Error(format!("create control port failed:{}", e)))
+                .await?;
+            error!("{}", e);
+            return Err(anyhow!("{}", e));
         }
     };
     let port = listener.local_addr().unwrap().port();
     info!("new client {}", port);
-    {
-        let mut ctl_conns = CTL_CONNS.lock().unwrap();
-        let date = Local::now();
-        let time = date.format("%Y-%m-%d %H:%M:%S").to_string();
-        ctl_conns.as_mut().unwrap().insert(
+
+    frame_stream
+        .send(&Message::InitPort(port))
+        .await
+        .context("send init port failed")?;
+
+    let mut ctl_conns = CTL_CONNS.lock().unwrap();
+    let date = Local::now();
+    let time = date.format("%Y-%m-%d %H:%M:%S").to_string();
+    ctl_conns.as_mut().unwrap().insert(
+        port,
+        CtlConInfo {
             port,
-            CtlConInfo {
-                port,
-                src: addr.to_string(),
-                time,
-                data: 0,
-            },
-        );
-    }
+            src: addr.to_string(),
+            time,
+            data: 0,
+        },
+    );
+    Ok(listener)
+}
 
-    frame_stream.send(&Message::InitPort(port)).await?;
-
+/// Handle the establishment of data links corresponding to each control port
+async fn enter_control_loop(
+    listener: TcpListener,
+    frame_stream: &mut FrameStream,
+    port: u16,
+    addr: SocketAddr,
+) -> Result<()> {
     loop {
         // if not existing,exit immediately
         let exist = {
@@ -175,12 +195,16 @@ async fn init_port(
         if !exist {
             frame_stream
                 .send(&Message::Error("server closed this connection".to_string()))
-                .await?;
+                .await
+                .context("send close this connection failed")?;
             return Ok(());
         }
 
         // check connect is ok
-        frame_stream.send(&Message::Heartbeat).await?;
+        frame_stream
+            .send(&Message::Heartbeat)
+            .await
+            .context("send heartbeat failed")?;
 
         // try to recv the client's heartbeat
         let msg = frame_stream
@@ -191,11 +215,12 @@ async fn init_port(
         }
 
         let proxy_conn = timeout(NETWORK_TIMEOUT, listener.accept()).await;
-        if proxy_conn.is_err() {
+        let Ok(proxy_conn) = proxy_conn else {
+            debug!("{}", proxy_conn.unwrap_err());
             continue;
-        }
+        };
 
-        let (stream, addr) = proxy_conn.unwrap()?;
+        let (stream, addr) = proxy_conn.context("accept data connect faild")?;
 
         info!("new connection {}:{}", addr, port);
 
@@ -217,12 +242,15 @@ async fn init_port(
             }
         });
 
-        frame_stream.send(&Message::Connect(id)).await?;
+        frame_stream
+            .send(&Message::Connect(id))
+            .await
+            .context("send connect msg failed")?;
     }
 }
 
 /// authenticate client
-async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
+async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
     let secret = &G_CFG.get().unwrap().secret;
     if secret.is_none() {
         return Ok(());
@@ -238,25 +266,25 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
                 frame_stream
                     .send(&Message::Error("auth failed".to_string()))
                     .await?;
-                return Err(Error::new(ErrorKind::PermissionDenied, "auth failed"));
+                return Err(anyhow!("auth failed,valid secret:{}", secret));
             }
         }
         _ => {
             frame_stream
                 .send(&Message::Error("auth failed".to_string()))
                 .await?;
-            return Err(Error::new(ErrorKind::PermissionDenied, "auth failed"));
+            return Err(anyhow!("auth failed,unexpected message!"));
         }
     }
 }
 
 /// create a tcp listener for a port
-async fn create_listener(port: u16) -> Result<TcpListener, Error> {
+async fn create_listener(port: u16) -> Result<TcpListener> {
     let port_range = &G_CFG.get().unwrap().port_range;
     if port > 0 {
         // Client requests a specific port number.
         if !port_range.contains(&port) {
-            return Err(Error::new(ErrorKind::InvalidData, "port not in range"));
+            return Err(anyhow!("port not in range"));
         }
         return try_bind(port).await;
     }
@@ -272,7 +300,7 @@ async fn create_listener(port: u16) -> Result<TcpListener, Error> {
 
         if n >= port_range.len() {
             PORT_IDX.store(port_range.start, Ordering::Relaxed);
-            return Err(Error::new(ErrorKind::Unsupported, "not find port"));
+            return Err(anyhow!("not find port"));
         }
         let ret = try_bind(port).await;
         if ret.is_err() {
@@ -285,6 +313,7 @@ async fn create_listener(port: u16) -> Result<TcpListener, Error> {
 }
 
 /// try to bind a port and return TcpListener
-async fn try_bind(port: u16) -> Result<TcpListener, Error> {
-    TcpListener::bind(("0.0.0.0", port)).await
+async fn try_bind(port: u16) -> Result<TcpListener> {
+    let listener = TcpListener::bind(("0.0.0.0", port)).await?;
+    Ok(listener)
 }

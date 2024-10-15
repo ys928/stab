@@ -23,3 +23,16 @@ async fn main() {
         }
     }
 }
+
+#[tokio::test]
+async fn test_main() {
+    config::init_config();
+    config::init_log();
+    match G_CFG.get().unwrap().mode {
+        config::Mode::Local => local::run().await,
+        config::Mode::Server => {
+            tokio::spawn(web::run());
+            server::run().await;
+        }
+    }
+}

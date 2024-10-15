@@ -31,15 +31,19 @@ pub async fn run() {
 }
 
 /// basic handler that responds with a static string
+#[cfg(not(test))]
 async fn root() -> Html<String> {
+    println!("222");
     let str = include_str!("index.html");
     Html(str.to_string())
 }
 
-// async fn root() -> Html<String> {
-//     let str = std::fs::read_to_string("index.html");
-//     return Html(str.unwrap());
-// }
+#[cfg(test)]
+async fn root() -> Html<String> {
+    println!("111");
+    let str = std::fs::read_to_string("./src/web/index.html");
+    return Html(str.unwrap());
+}
 
 /// get all connections
 async fn get_connects() -> Json<Vec<CtlConInfo>> {

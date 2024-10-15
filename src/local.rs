@@ -1,11 +1,11 @@
 //! the local module code
 
-use std::io::{Error, ErrorKind};
-
 use log::{error, info, trace, warn};
 use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
-use tracing::{debug_span, Instrument};
+use tracing::{debug, debug_span, Instrument};
 use uuid::Uuid;
+
+use anyhow::{anyhow, Context, Result};
 
 use crate::{
     config::{Link, G_CFG},
@@ -16,29 +16,23 @@ use crate::{
 pub async fn run() {
     let links = &G_CFG.get().unwrap().links;
     let port = G_CFG.get().unwrap().port;
-    let mut joins: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+    let mut joins: Vec<JoinHandle<()>> = Vec::new();
     for link in links.iter() {
         let join = tokio::spawn(
-            create_link(link, port)
-                .instrument(debug_span!("conn", id = Uuid::new_v4().to_string())),
+            async move {
+                let _ = create_link(link, port).await.map_err(|e| error!("{}", e));
+            }
+            .instrument(debug_span!("conn", id = Uuid::new_v4().to_string())),
         );
         joins.push(join);
     }
     for join in joins {
-        let ret = join.await;
-        if ret.is_err() {
-            error!("{}", ret.unwrap_err());
-        } else {
-            let ret = ret.unwrap();
-            if ret.is_err() {
-                error!("{}", ret.unwrap_err());
-            }
-        }
+        let _ = join.await.map_err(|e| error!("{}", e));
     }
 }
 
 /// begin a connect
-async fn create_link(link: &Link, port: u16) -> Result<(), Error> {
+async fn create_link(link: &Link, port: u16) -> Result<()> {
     let stream = connect_with_timeout(&link.remote.host, port).await?;
 
     let mut frame_stream = FrameStream::new(stream);
@@ -49,23 +43,23 @@ async fn create_link(link: &Link, port: u16) -> Result<(), Error> {
 
     loop {
         // sure connection is established
-        let ret = frame_stream.send(&Message::Heartbeat).await;
-
-        if ret.is_err() {
-            return Err(Error::new(ErrorKind::ConnectionAborted, "heartbeat failed"));
-        }
+        frame_stream
+            .send(&Message::Heartbeat)
+            .await
+            .context("heartbeat failed")?;
 
         let msg = frame_stream.recv_timeout().await;
-        if msg.is_err() {
+        let Ok(msg) = msg else {
+            debug!("{:?}", msg.unwrap_err());
             continue;
-        }
+        };
 
-        match msg.unwrap() {
+        match msg {
             Message::InitPort(_) => info!("unexpected init"),
             Message::Auth(_) => warn!("unexpected auth"),
-            Message::Heartbeat => trace!("server check heartbeat"),
+            Message::Heartbeat => trace!("server >> heartbeat"),
             Message::Error(e) => {
-                return Err(Error::new(ErrorKind::Other, e));
+                return Err(anyhow!("{}", e));
             }
             Message::Connect(id) => {
                 let link = link.clone();
@@ -82,7 +76,7 @@ async fn create_link(link: &Link, port: u16) -> Result<(), Error> {
 }
 
 /// authentication info to server
-async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
+async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
     let secret = &G_CFG.get().unwrap().secret;
     if secret.is_none() {
         return Ok(());
@@ -94,13 +88,13 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<(), Error> {
     let msg = frame_stream.recv_timeout().await?;
     match msg {
         Message::Auth(_) => Ok(()),
-        Message::Error(e) => Err(Error::new(ErrorKind::PermissionDenied, e)),
-        _ => Err(Error::new(ErrorKind::InvalidData, "unexpect msg")),
+        Message::Error(e) => Err(anyhow!("{}", e)),
+        _ => Err(anyhow!("unexpect msg")),
     }
 }
 
 /// send and recv InitPort message with server
-async fn init_port(frame_stream: &mut FrameStream, link: &Link) -> Result<(), Error> {
+async fn init_port(frame_stream: &mut FrameStream, link: &Link) -> Result<()> {
     frame_stream
         .send(&Message::InitPort(link.remote.port))
         .await?;
@@ -113,22 +107,21 @@ async fn init_port(frame_stream: &mut FrameStream, link: &Link) -> Result<(), Er
             );
             Ok(())
         }
-        Message::Error(e) => Err(Error::new(ErrorKind::Other, e)),
-        _ => Err(Error::new(ErrorKind::InvalidData, "unexpect msg")),
+        Message::Error(e) => Err(anyhow!("{}", e)),
+        _ => Err(anyhow!("unexpect msg")),
     }
 }
 
 /// create a TcpStream from to:port
-async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream, Error> {
-    let ret = timeout(NETWORK_TIMEOUT, TcpStream::connect((addr, port))).await;
-    if ret.is_err() {
-        return Err(Error::new(ErrorKind::TimedOut, "timeout"));
-    }
-    ret.unwrap()
+async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream> {
+    let conn = timeout(NETWORK_TIMEOUT, TcpStream::connect((addr, port)))
+        .await
+        .context(format!("{}:{}", addr, port))??;
+    Ok(conn)
 }
 
 /// deal connection from server proxy port
-async fn handle_proxy_connection(id: Uuid, link: &Link) -> Result<(), Error> {
+async fn handle_proxy_connection(id: Uuid, link: &Link) -> Result<()> {
     let stream = connect_with_timeout(&link.remote.host, G_CFG.get().unwrap().port).await?;
     let mut frame_stream = FrameStream::new(stream);
 
