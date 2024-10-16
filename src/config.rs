@@ -12,6 +12,8 @@ use clap::{Parser, ValueEnum};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 /// global configuration
 pub static G_CFG: OnceLock<StabConfig> = OnceLock::new();
@@ -25,6 +27,8 @@ pub struct StabConfig {
     pub port: u16,
     /// log level
     pub log: u8,
+    /// log sava path
+    pub log_path: String,
     /// an optional secret for authentication
     pub secret: Option<String>,
     /// client mode,all link to server
@@ -55,6 +59,10 @@ pub struct StabArgs {
     /// the log level,1=error,2=warn,3=info,4=debug,5=trace
     #[clap(long, value_name = "log level")]
     pub log: Option<u8>,
+
+    /// the log save path
+    #[clap(long, value_name = "log path")]
+    pub log_path: Option<String>,
 
     /// an optional secret for authentication
     #[clap(short, long, value_name = "secret")]
@@ -111,6 +119,8 @@ pub struct FileConfig {
     secret: Option<String>,
     /// the log level
     log: Option<u8>,
+    /// the log save path
+    log_path: Option<String>,
     /// the client config
     local: Option<LocalConfig>,
     /// the server config
@@ -145,6 +155,7 @@ pub fn init_config() {
         mode: Mode::Server,
         port: 5656,
         log: 5,
+        log_path: "logs".to_string(),
         secret: None,
         links: Vec::new(),
         port_range: 1024..65535,
@@ -176,7 +187,7 @@ pub fn init_config() {
     G_CFG.get_or_init(|| stab_config);
 }
 
-#[test]
+#[cfg(test)]
 pub fn init_config() {
     let hashed_secret = Sha256::new().chain_update("test secret").finalize();
     let secret = Some(format!("{:x}", hashed_secret));
@@ -185,6 +196,7 @@ pub fn init_config() {
         mode: Mode::Server,
         port: 5656,
         log: 5,
+        log_path: "logs".to_string(),
         secret,
         links: Vec::new(),
         port_range: 1024..65535,
@@ -196,10 +208,10 @@ pub fn init_config() {
 /// init config with file
 pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
     let cfg_str = std::fs::read_to_string(file);
-    if cfg_str.is_err() {
+
+    let Ok(cfg_str) = cfg_str else {
         panic!("{:?}", cfg_str.unwrap_err());
-    }
-    let cfg_str = cfg_str.unwrap();
+    };
 
     let file_config = toml::from_str(&cfg_str);
 
@@ -212,6 +224,7 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
     file_config.mode.map(|a| stab_config.mode = a);
     file_config.port.map(|a| stab_config.port = a);
     file_config.log.map(|l| stab_config.log = l);
+    file_config.log_path.map(|p| stab_config.log_path = p);
 
     if let Some(s) = file_config.secret {
         let hashed_secret = Sha256::new().chain_update(s).finalize();
@@ -227,10 +240,12 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
         if c.links.is_some() {
             for link in c.links.unwrap().iter() {
                 let lin = parse_link(&link, c.to.as_deref());
-                if lin.is_err() {
+
+                let Ok(lin) = lin else {
                     panic!("parse link failed: {:?}", link);
-                }
-                stab_config.links.push(lin.unwrap());
+                };
+
+                stab_config.links.push(lin);
             }
         }
     }
@@ -240,26 +255,45 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
 pub fn init_log() {
     let timer = tracing_subscriber::fmt::time::ChronoLocal::new("%Y-%m-%d %H:%M:%S".to_owned());
 
-    tracing_subscriber::fmt()
-        .with_timer(timer)
+    let cfg = G_CFG.get().unwrap();
+
+    let logfile = tracing_appender::rolling::daily(&cfg.log_path, "stab.log");
+
+    // console Layer
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_timer(timer.clone())
         .with_target(true)
         .with_line_number(true)
         .with_writer(std::io::stdout)
-        .with_max_level(log_level())
+        .with_ansi(true)
+        .with_filter(log_level());
+
+    // file Layer
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_timer(timer)
+        .with_target(true)
+        .with_line_number(true)
+        .with_writer(logfile)
+        .with_ansi(false)
+        .with_filter(log_level());
+
+    tracing_subscriber::registry()
+        .with(file_layer)
+        .with(console_layer)
         .init();
 }
 
 /// get the log level from the config
-fn log_level() -> tracing::Level {
+fn log_level() -> LevelFilter {
     let f_cfg = G_CFG.get().unwrap();
 
     match f_cfg.log {
-        1 => tracing::Level::ERROR,
-        2 => tracing::Level::WARN,
-        3 => tracing::Level::INFO,
-        4 => tracing::Level::DEBUG,
-        5 => tracing::Level::TRACE,
-        _ => tracing::Level::TRACE,
+        1 => LevelFilter::ERROR,
+        2 => LevelFilter::WARN,
+        3 => LevelFilter::INFO,
+        4 => LevelFilter::DEBUG,
+        5 => LevelFilter::TRACE,
+        _ => LevelFilter::TRACE,
     }
 }
 

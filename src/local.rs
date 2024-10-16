@@ -2,7 +2,7 @@
 
 use log::{error, info, trace, warn};
 use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
-use tracing::{debug, debug_span, Instrument};
+use tracing::{debug, trace_span, Instrument};
 use uuid::Uuid;
 
 use anyhow::{anyhow, Context, Result};
@@ -20,9 +20,11 @@ pub async fn run() {
     for link in links.iter() {
         let join = tokio::spawn(
             async move {
-                let _ = create_link(link, port).await.map_err(|e| error!("{}", e));
+                let _ = create_link(link, port)
+                    .await
+                    .map_err(|e| error!("{:?}:{}", link, e));
             }
-            .instrument(debug_span!("conn", id = Uuid::new_v4().to_string())),
+            .instrument(trace_span!("conn", id = Uuid::new_v4().to_string())),
         );
         joins.push(join);
     }

@@ -64,12 +64,11 @@ pub async fn run() {
 
     loop {
         let ret = control_listener.accept().await;
-        if ret.is_err() {
+
+        let Ok((stream, addr)) = ret else {
             error!("failed to accept client {}", ret.unwrap_err());
             continue;
-        }
-
-        let (stream, addr) = ret.unwrap();
+        };
 
         tokio::spawn(
             async move {
