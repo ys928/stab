@@ -10,6 +10,7 @@ use anstyle::{
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 
+use log::error;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tracing::level_filters::LevelFilter;
@@ -317,16 +318,21 @@ fn cmd_parse_range(s: &str) -> Result<Range<u16>> {
     if p.len() != 2 {
         return Err(err_msg);
     }
+
     let min = p[0].parse::<u16>();
-    if min.is_err() {
+
+    let Ok(min) = min else {
+        error!("{}", min.unwrap_err());
         return Err(err_msg);
-    }
-    let min = min.unwrap();
+    };
+
     let max = p[1].parse::<u16>();
-    if max.is_err() {
+
+    let Ok(max) = max else {
+        error!("{}", max.unwrap_err());
         return Err(err_msg);
-    }
-    let max = max.unwrap();
+    };
+
     if min >= max {
         return Err(err_msg);
     }
@@ -347,10 +353,10 @@ fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link> {
     if addrs.len() == 1 && to.is_some() {
         // parse local address
         let local_addr = parse_address(addrs[0], Some("127.0.0.1"), None);
-        if local_addr.is_none() {
+
+        let Some(local_addr) = local_addr else {
             return Err(err_msg);
-        }
-        let local_addr = local_addr.unwrap();
+        };
 
         let remote_addr = Address {
             host: to.unwrap().to_string(),
@@ -368,17 +374,18 @@ fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link> {
     let remote_addr = addrs[1];
 
     let local_addr = parse_address(local_addr, Some("127.0.0.1"), None);
-    if local_addr.is_none() {
+
+    let Some(local_addr) = local_addr else {
         return Err(err_msg);
-    }
-    let local_addr = local_addr.unwrap();
+    };
 
     // pares remote address
     let remote_addr = parse_address(remote_addr, to, Some(0));
-    if remote_addr.is_none() {
+
+    let Some(remote_addr) = remote_addr else {
         return Err(err_msg);
-    }
-    let remote_addr = remote_addr.unwrap();
+    };
+
     link.local = local_addr;
     link.remote = remote_addr;
     return Ok(link);
@@ -399,32 +406,32 @@ fn parse_address(
         let port = addr[0].parse::<u16>();
         if port.is_err() {
             let host = addr[0].to_string();
-            if default_port.is_none() {
+            let Some(default_port) = default_port else {
                 return None;
-            }
+            };
             return Some(Address {
                 host,
-                port: default_port.unwrap(),
+                port: default_port,
             });
         } else {
-            let port = port.unwrap();
-            if default_host.is_none() {
+            let Some(default_host) = default_host else {
                 return None;
-            }
+            };
             return Some(Address {
-                host: default_host.unwrap().to_string(),
-                port,
+                host: default_host.to_string(),
+                port: port.unwrap(),
             });
         }
     }
 
     // host:port
     let port = addr[1].parse::<u16>();
-    if port.is_err() {
+    let Ok(port) = port else {
+        error!("{}", port.unwrap_err());
         return None;
-    }
+    };
     return Some(Address {
         host: addr[0].to_string(),
-        port: port.unwrap(),
+        port,
     });
 }

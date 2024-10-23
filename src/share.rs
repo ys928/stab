@@ -5,7 +5,7 @@ use std::time::Duration;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     time::timeout,
 };
@@ -105,13 +105,10 @@ impl FrameStream {
     }
 }
 
-/// Copy data mutually between two read/write streams.
-pub async fn proxy<T>(stream1: T, stream2: T) -> Result<u64>
-where
-    T: AsyncRead + AsyncWrite + Unpin,
-{
-    let (mut s1_read, mut s1_write) = io::split(stream1);
-    let (mut s2_read, mut s2_write) = io::split(stream2);
+/// Copy data mutually between two Tcpstreams.
+pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<u64> {
+    let (mut s1_read, mut s1_write) = stream1.split();
+    let (mut s2_read, mut s2_write) = stream2.split();
     let bytes = tokio::select! {
         res = io::copy(&mut s1_read, &mut s2_write) => res,
         res = io::copy(&mut s2_read, &mut s1_write) => res,

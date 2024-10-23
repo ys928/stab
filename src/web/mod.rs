@@ -33,14 +33,12 @@ pub async fn run() {
 /// basic handler that responds with a static string
 #[cfg(not(test))]
 async fn root() -> Html<String> {
-    println!("222");
     let str = include_str!("index.html");
     Html(str.to_string())
 }
 
 #[cfg(test)]
 async fn root() -> Html<String> {
-    println!("111");
     let str = std::fs::read_to_string("./src/web/index.html");
     return Html(str.unwrap());
 }

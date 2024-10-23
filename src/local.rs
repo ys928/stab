@@ -80,10 +80,10 @@ async fn create_link(link: &Link, port: u16) -> Result<()> {
 /// authentication info to server
 async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
     let secret = &G_CFG.get().unwrap().secret;
-    if secret.is_none() {
+
+    let Some(secret) = secret else {
         return Ok(());
-    }
-    let secret = secret.as_ref().unwrap();
+    };
 
     frame_stream.send(&Message::Auth(secret.clone())).await?;
 
