@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 
-use log::info;
+use log::{error, info};
 
 use crate::{
     config::G_CFG,
@@ -23,9 +23,11 @@ pub async fn run() {
         .route("/api/connects/:port", delete(del_connect));
 
     let port = G_CFG.get().unwrap().web_port;
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await;
+    let Ok(listener) = listener else {
+        error!("start web server failed: {}", listener.unwrap_err());
+        return;
+    };
     info!("web server:http://localhost:{}", port);
     axum::serve(listener, app).await.unwrap();
 }
