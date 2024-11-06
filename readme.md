@@ -119,6 +119,7 @@ mode = "Server"        # 选择服务器模式
 port = 5959            # 设置控制端口
 secret = "test secret" # 设置密钥
 log = 5                # 设置日志等级：1-5，默认为5
+log_path = "logs"      # 设置日志保存位置，默认为当前目录下的logs目录
 
 [server]
 web_port = 80            # 设置web端口
@@ -138,6 +139,7 @@ mode = "Local"         # 选择本地模式
 port = 5959            # 设置控制端口
 secret = "test secret" # 设置密钥
 log = 5                # 设置日志等级：1-5，默认为5
+log_path = "logs"      # 设置日志保存位置，默认为当前目录下的logs目录
 
 [local]
 to = "server.com"       # 设置默认服务器

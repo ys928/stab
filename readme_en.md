@@ -118,6 +118,7 @@ mode = "Server" # Select server mode
 port = 5959 # Set control port
 secret = "test secret" # Set secret key
 log = 5 # Set log level: 1-5, default is 5
+log_path = "logs"      # Set the log saving location. The default is the logs directory under the current directory
 
 [server]
 web_port = 80 # Set web port
@@ -137,6 +138,7 @@ mode = "Local"         # Select local mode
 port = 5959            # Set control port
 secret = "test secret" # Set secret key
 log = 5                # Set log level: 1-5, default is 5
+log_path = "logs"      # Set the log saving location. The default is the logs directory under the current directory
 
 [local]
 to = "server.com"       # Set the default server
