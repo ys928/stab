@@ -18,19 +18,19 @@ repository = "https://github.com/ys928/stab"
 
 [dependencies]
 tokio = { version = "1.41.0", features = ["full"] }
-serde = { version = "1.0.213", features = ["derive"] }
+serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
 log = "0.4.22"
 tracing = "0.1"
 uuid = { version = "1.11.0", features = ["serde", "v4"] }
 clap = { version = "4.5.20", features = ["derive"] }
-anstyle = "1.0.8"
+anstyle = "1.0.10"
 sha2 = "0.10.8"
 axum = "0.7.7"
 chrono = "0.4.38"
 toml = "0.8.19"
 tracing-subscriber = { version = "0.3.18", features = ["chrono", "time"] }
-anyhow = "1.0.91"
+anyhow = "1.0.93"
 tracing-appender = "0.2.3"
 
 [profile.release]
