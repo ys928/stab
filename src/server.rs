@@ -58,7 +58,12 @@ pub async fn run() {
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
-    let control_listener = TcpListener::bind(&addr).await.unwrap();
+    let control_listener = TcpListener::bind(&addr).await;
+
+    let Ok(control_listener) = control_listener else {
+        error!("{}", control_listener.unwrap_err());
+        return;
+    };
 
     info!("server listening {}", addr);
 
@@ -97,6 +102,8 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             let listener = init_port(&mut frame_stream, port, addr)
                 .await
                 .context("init port failed")?;
+
+            let port = listener.local_addr().unwrap().port();
 
             let ret = enter_control_loop(listener, &mut frame_stream, port, addr).await;
 
