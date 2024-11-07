@@ -2,16 +2,12 @@
 
 use std::time::Duration;
 
-use log::warn;
+use anyhow::{bail, Context, Result};
+use futures::{sink::SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-    time::timeout,
-};
+use tokio::{io, net::TcpStream, time::timeout};
+use tokio_util::codec::{AnyDelimiterCodec, Framed};
 use uuid::Uuid;
-
-use anyhow::{Context, Result};
 /// Timeout for network connections.
 pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -35,55 +31,29 @@ pub enum Message {
 }
 
 /// frame stream, used to send/recv a message
-pub struct FrameStream {
-    stream: TcpStream,
-    msg: String,
-}
+pub struct FrameStream(Framed<TcpStream, AnyDelimiterCodec>);
 
 impl FrameStream {
     /// create a new frame stream
     pub fn new(stream: TcpStream) -> Self {
-        FrameStream {
-            stream,
-            msg: String::new(),
-        }
+        let codec = AnyDelimiterCodec::new(b"\0".to_vec(), b"\0".to_vec());
+        Self(Framed::new(stream, codec))
     }
 
     /// send message as frame
     pub async fn send(&mut self, msg: &Message) -> Result<()> {
-        let mut data = serde_json::to_string(msg).unwrap();
-        data.push('\n');
-        self.stream
-            .write_all(data.as_bytes())
-            .await
-            .context(format!("send msg:{:?}", msg))?;
+        self.0.send(serde_json::to_string(msg)?).await?;
         Ok(())
     }
 
     /// recv message as frame
     pub async fn recv(&mut self) -> Result<Message> {
-        loop {
-            let pos = self.msg.find("\n");
-            if pos.is_none() {
-                let mut buf: [u8; 255] = [0; 255];
-                let size = self.stream.read(&mut buf).await?;
-                let msg = String::from_utf8(buf[0..size].to_vec());
-                let Ok(msg) = msg else {
-                    warn!("failed to convert message from stream:{}", msg.unwrap_err());
-                    continue;
-                };
-                self.msg.push_str(&msg);
-                continue;
-            }
-
-            let mut msg: String = self.msg.drain(0..=pos.unwrap()).collect();
-            msg.pop(); // remove \n
-            let msg = serde_json::from_str(&msg);
-            let Ok(msg) = msg else {
-                warn!("{}", msg.unwrap_err());
-                continue;
-            };
-            return Ok(msg);
+        if let Some(msg) = self.0.next().await {
+            let byte_msg = msg.context("recv frame failed")?;
+            let msg = serde_json::from_slice(&byte_msg).context("invalid msg")?;
+            Ok(msg)
+        } else {
+            bail!("no recv msg");
         }
     }
 
@@ -101,7 +71,7 @@ impl FrameStream {
 
     /// get the TcpStream
     pub fn stream(self) -> TcpStream {
-        self.stream
+        self.0.into_parts().io
     }
 }
 

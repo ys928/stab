@@ -32,6 +32,8 @@ toml = "0.8.19"
 tracing-subscriber = { version = "0.3.18", features = ["chrono", "time"] }
 anyhow = "1.0.93"
 tracing-appender = "0.2.3"
+tokio-util = { version = "0.7.12", features = ["codec"] }
+futures = "0.3.31"
 
 [profile.release]
 strip = true      # Automatically strip symbols from the binary.
