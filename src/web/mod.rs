@@ -47,15 +47,14 @@ async fn root() -> Html<String> {
 
 /// get all connections
 async fn get_connects() -> Json<Vec<CtlConInfo>> {
-    let conn = CTL_CONNS.lock().unwrap();
-    let conn = conn.as_ref().unwrap();
+    let conn = CTL_CONNS.get().unwrap().view().await;
     let mut ret = Vec::new();
-    for v in conn.values() {
+    for con in conn {
         ret.push(CtlConInfo {
-            port: v.port,
-            src: v.src.to_string(),
-            time: v.time.to_string(),
-            data: v.data,
+            port: con.port,
+            src: con.src.clone(),
+            time: con.time.clone(),
+            data: con.data,
         });
     }
     Json(ret)
@@ -63,8 +62,7 @@ async fn get_connects() -> Json<Vec<CtlConInfo>> {
 
 /// delete a connection
 async fn del_connect(Path(port): Path<u16>) -> StatusCode {
-    let mut ctl_conns = CTL_CONNS.lock().unwrap();
-    let ret = ctl_conns.as_mut().unwrap().remove(&port);
+    let ret = CTL_CONNS.get().unwrap().remove(port).await;
     if ret.is_none() {
         StatusCode::NOT_FOUND
     } else {

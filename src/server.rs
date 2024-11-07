@@ -3,10 +3,11 @@
 use anyhow::{anyhow, Context, Result};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::config::G_CFG;
+use crate::control::CtlConns;
 use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
 use chrono::Local;
 use log::{error, info, trace, warn};
@@ -18,7 +19,7 @@ use tracing::{debug, debug_span, Instrument};
 use uuid::Uuid;
 
 /// connection information
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CtlConInfo {
     /// server port
     pub port: u16,
@@ -42,18 +43,18 @@ pub struct DataConn {
 static CLI_CONNS: Mutex<Option<HashMap<Uuid, DataConn>>> = Mutex::new(None);
 
 /// All control connect
-pub static CTL_CONNS: Mutex<Option<HashMap<u16, CtlConInfo>>> = Mutex::new(None);
+pub static CTL_CONNS: OnceLock<CtlConns> = OnceLock::new();
 
 /// current port number
 static PORT_IDX: AtomicU16 = AtomicU16::new(0);
 
 /// Start the server, listening for new control connections.
 pub async fn run() {
+    CTL_CONNS.set(CtlConns::new()).unwrap();
+
     {
         let mut conns = CLI_CONNS.lock().unwrap();
         *conns = Some(HashMap::new());
-        let mut ctl_conns = CTL_CONNS.lock().unwrap();
-        *ctl_conns = Some(HashMap::new());
     }
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
@@ -106,10 +107,7 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             let port = listener.local_addr().unwrap().port();
 
             let ret = enter_control_loop(listener, &mut frame_stream, port, addr).await;
-
-            let mut ctl_conns = CTL_CONNS.lock().unwrap();
-            ctl_conns.as_mut().unwrap().remove(&port);
-
+            CTL_CONNS.get().unwrap().remove(port).await;
             ret?
         }
         Message::Connect(id) => {
@@ -123,12 +121,7 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
                 let stream2 = conn.unwrap();
                 let stream1 = frame_stream.stream();
                 let size = proxy(stream1, stream2.stream).await?;
-                let mut ctl_conns = CTL_CONNS.lock().unwrap();
-                let info = ctl_conns.as_mut().unwrap().get_mut(&stream2.port);
-                if info.is_some() {
-                    let info = info.unwrap();
-                    info.data += size;
-                }
+                CTL_CONNS.get().unwrap().add_data(stream2.port, size);
             }
         }
         Message::Auth(_) => {
@@ -169,18 +162,15 @@ async fn init_port(
         .await
         .context("send init port failed")?;
 
-    let mut ctl_conns = CTL_CONNS.lock().unwrap();
     let date = Local::now();
     let time = date.format("%Y-%m-%d %H:%M:%S").to_string();
-    ctl_conns.as_mut().unwrap().insert(
+    let ctl = CtlConInfo {
         port,
-        CtlConInfo {
-            port,
-            src: addr.to_string(),
-            time,
-            data: 0,
-        },
-    );
+        src: addr.to_string(),
+        time,
+        data: 0,
+    };
+    CTL_CONNS.get().unwrap().insert(port, ctl).await;
     Ok(listener)
 }
 
@@ -193,10 +183,7 @@ async fn enter_control_loop(
 ) -> Result<()> {
     loop {
         // if not existing,exit immediately
-        let exist = {
-            let ctl_conns = CTL_CONNS.lock().unwrap();
-            ctl_conns.as_ref().unwrap().contains_key(&port)
-        };
+        let exist = CTL_CONNS.get().unwrap().contain(port).await;
 
         if !exist {
             frame_stream

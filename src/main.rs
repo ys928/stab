@@ -6,6 +6,7 @@
 use config::G_CFG;
 
 pub mod config;
+pub mod control;
 pub mod local;
 pub mod server;
 pub mod share;
