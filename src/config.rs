@@ -1,6 +1,9 @@
 //! the config file
 
-use std::{ops::Range, sync::OnceLock};
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
 use anstyle::{
     AnsiColor::{BrightBlue, BrightCyan, BrightGreen, Green, Red},
@@ -33,7 +36,7 @@ pub struct StabConfig {
     /// an optional secret for authentication
     pub secret: Option<String>,
     /// client mode,all link to server
-    pub links: Vec<Link>,
+    pub links: Vec<Arc<Link>>,
     /// server mode,port range
     pub port_range: Range<u16>,
     /// web manage server port
@@ -178,7 +181,7 @@ pub fn init_config() {
     }
 
     if let Some(link) = args.link {
-        stab_config.links.push(link);
+        stab_config.links.push(Arc::new(link));
     }
 
     if stab_config.mode == Mode::Local && stab_config.links.is_empty() {
@@ -246,7 +249,7 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
                     panic!("parse link failed: {:?}", link);
                 };
 
-                stab_config.links.push(lin);
+                stab_config.links.push(Arc::new(lin));
             }
         }
     }

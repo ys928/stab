@@ -1,5 +1,7 @@
 //! the local module code
 
+use std::sync::Arc;
+
 use log::{error, info, trace, warn};
 use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
 use tracing::{debug, trace_span, Instrument};
@@ -17,10 +19,10 @@ pub async fn run() {
     let links = &G_CFG.get().unwrap().links;
     let port = G_CFG.get().unwrap().port;
     let mut joins: Vec<JoinHandle<()>> = Vec::new();
-    for link in links.iter() {
+    for link in links {
         let join = tokio::spawn(
             async move {
-                let _ = create_link(link, port)
+                let _ = create_link(link.clone(), port)
                     .await
                     .map_err(|e| error!("{:?}:{}", link, e));
             }
@@ -34,14 +36,14 @@ pub async fn run() {
 }
 
 /// begin a connect
-async fn create_link(link: &Link, port: u16) -> Result<()> {
+async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
     let stream = connect_with_timeout(&link.remote.host, port).await?;
 
     let mut frame_stream = FrameStream::new(stream);
 
     let _ = auth(&mut frame_stream).await?;
 
-    let _ = init_port(&mut frame_stream, link).await?;
+    let _ = init_port(&mut frame_stream, &link).await?;
 
     loop {
         // sure connection is established
@@ -96,7 +98,7 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
 }
 
 /// send and recv InitPort message with server
-async fn init_port(frame_stream: &mut FrameStream, link: &Link) -> Result<()> {
+async fn init_port(frame_stream: &mut FrameStream, link: &Arc<Link>) -> Result<()> {
     frame_stream
         .send(&Message::InitPort(link.remote.port))
         .await?;
