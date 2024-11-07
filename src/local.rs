@@ -48,7 +48,7 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
     loop {
         // sure connection is established
         frame_stream
-            .send(&Message::Heartbeat)
+            .send_timeout(&Message::Heartbeat)
             .await
             .context("heartbeat failed")?;
 

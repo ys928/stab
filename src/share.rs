@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use futures::{sink::SinkExt, StreamExt};
+use log::warn;
 use serde::{Deserialize, Serialize};
 use tokio::{io, net::TcpStream, time::timeout};
 use tokio_util::codec::{AnyDelimiterCodec, Framed};
@@ -55,6 +56,16 @@ impl FrameStream {
         } else {
             bail!("no recv msg");
         }
+    }
+
+    /// send message as frame
+    pub async fn send_timeout(&mut self, msg: &Message) -> Result<()> {
+        let ret = timeout(NETWORK_TIMEOUT, self.0.send(serde_json::to_string(msg)?)).await;
+        let Ok(ret) = ret else {
+            warn!("send msg timeout:{:?}", msg);
+            return Ok(());
+        };
+        Ok(ret?)
     }
 
     /// recv message within the specified time
