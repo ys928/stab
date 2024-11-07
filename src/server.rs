@@ -3,16 +3,16 @@
 use anyhow::{anyhow, Context, Result};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::config::G_CFG;
 use crate::control::CtlConns;
+use crate::data_conn::DataConns;
 use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
 use chrono::Local;
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{sleep, timeout};
 use tracing::{debug, debug_span, Instrument};
@@ -32,6 +32,7 @@ pub struct CtlConInfo {
 }
 
 /// Links for transferring data.
+#[derive(Debug)]
 pub struct DataConn {
     /// Subordinate Port
     pub port: u16,
@@ -40,7 +41,7 @@ pub struct DataConn {
 }
 
 /// Concurrent map of IDs to incoming connections.
-static CLI_CONNS: Mutex<Option<HashMap<Uuid, DataConn>>> = Mutex::new(None);
+static DATA_CONNS: OnceLock<DataConns> = OnceLock::new();
 
 /// All control connect
 pub static CTL_CONNS: OnceLock<CtlConns> = OnceLock::new();
@@ -52,10 +53,7 @@ static PORT_IDX: AtomicU16 = AtomicU16::new(0);
 pub async fn run() {
     CTL_CONNS.set(CtlConns::new()).unwrap();
 
-    {
-        let mut conns = CLI_CONNS.lock().unwrap();
-        *conns = Some(HashMap::new());
-    }
+    DATA_CONNS.set(DataConns::new()).unwrap();
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
@@ -111,10 +109,8 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             ret?
         }
         Message::Connect(id) => {
-            let conn = {
-                let mut conns = CLI_CONNS.lock().unwrap();
-                conns.as_mut().unwrap().remove(&id)
-            };
+            let conn = DATA_CONNS.get().unwrap().remove(id).await;
+
             if conn.is_none() {
                 warn!("missing connection");
             } else {
@@ -218,19 +214,17 @@ async fn enter_control_loop(
         info!("new connection {}:{}", addr, port);
 
         let id = Uuid::new_v4();
-        {
-            let mut conns = CLI_CONNS.lock().unwrap();
-            conns
-                .as_mut()
-                .unwrap()
-                .insert(id, DataConn { port, stream });
-        }
+        DATA_CONNS
+            .get()
+            .unwrap()
+            .insert(id, DataConn { port, stream })
+            .await;
 
         tokio::spawn(async move {
             // Remove stale entries to avoid memory leaks.
             sleep(Duration::from_secs(15)).await;
-            let mut conns = CLI_CONNS.lock().unwrap();
-            if conns.as_mut().unwrap().remove(&id).is_some() {
+
+            if DATA_CONNS.get().unwrap().remove(id).await.is_some() {
                 warn!("removed stale connection {}", id);
             }
         });
