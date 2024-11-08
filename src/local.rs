@@ -74,11 +74,11 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
             M::E(e) => {
                 return Err(anyhow!("{}", e));
             }
-            M::C(id) => {
+            M::C(port) => {
                 let link = link.clone();
                 tokio::spawn(async move {
                     info!("new connection");
-                    match handle_proxy_connection(id, &link).await {
+                    match handle_proxy_connection(port, &link).await {
                         Ok(_) => info!("connection exited"),
                         Err(err) => warn!("connection exited with error {}", err),
                     }
@@ -132,13 +132,13 @@ async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream> {
 }
 
 /// deal connection from server proxy port
-async fn handle_proxy_connection(id: Uuid, link: &Link) -> Result<()> {
+async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
     let stream = connect_with_timeout(&link.remote.host, G_CFG.get().unwrap().port).await?;
     let mut frame_stream = FrameStream::new(stream);
 
     auth(&mut frame_stream).await?;
 
-    frame_stream.send(&M::C(id)).await?;
+    frame_stream.send(&M::C(port)).await?;
 
     let local = connect_with_timeout(&link.local.host, link.local.port).await?;
 

@@ -11,10 +11,9 @@ use std::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::config::G_CFG;
-use crate::control::CtlConns;
-use crate::data_conn::DataConns;
-use crate::share::{proxy, FrameStream, M, NETWORK_TIMEOUT};
+use crate::share::{FrameStream, M, NETWORK_TIMEOUT};
+use crate::{config::G_CFG, tcp_pool::TcpPool};
+use crate::{control::CtlConns, share::proxy};
 use chrono::Local;
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
@@ -38,17 +37,8 @@ pub struct CtlConInfo {
     pub data: u64,
 }
 
-/// Links for transferring data.
-#[derive(Debug)]
-pub struct DataConn {
-    /// Subordinate Port
-    pub port: u16,
-    /// connection
-    pub stream: TcpStream,
-}
-
-/// Concurrent map of IDs to incoming connections.
-static DATA_CONNS: OnceLock<DataConns> = OnceLock::new();
+/// tcp stream pool
+static TCP_POOL: OnceLock<TcpPool> = OnceLock::new();
 
 /// All control connect
 pub static CTL_CONNS: OnceLock<CtlConns> = OnceLock::new();
@@ -60,7 +50,7 @@ static PORT_IDX: AtomicU16 = AtomicU16::new(0);
 pub async fn run() {
     CTL_CONNS.set(CtlConns::new()).unwrap();
 
-    DATA_CONNS.set(DataConns::new()).unwrap();
+    TCP_POOL.set(TcpPool::new()).unwrap();
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
@@ -115,17 +105,12 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             CTL_CONNS.get().unwrap().remove(port).await;
             ret?
         }
-        M::C(id) => {
-            let conn = DATA_CONNS.get().unwrap().remove(id).await;
-
-            if conn.is_none() {
-                warn!("missing connection");
-            } else {
-                let stream2 = conn.unwrap();
-                let stream1 = frame_stream.stream();
-                let size = proxy(stream1, stream2.stream).await?;
-                CTL_CONNS.get().unwrap().add_data(stream2.port, size);
-            }
+        M::C(port) => {
+            TCP_POOL
+                .get()
+                .unwrap()
+                .add_tcp_stream(port, frame_stream.stream())
+                .await;
         }
         M::A(_) => {
             frame_stream
@@ -197,6 +182,14 @@ async fn enter_control_loop(
 
     // send msg to client
     tokio::spawn(async move {
+        // init tcp stream pool
+        for _ in 0..8 {
+            if let Err(e) = frame_sender.send(&M::C(port)).await {
+                warn!("send msg failed:{}", e);
+                break;
+            }
+        }
+
         while let Some(msg) = msg_recv.recv().await {
             if let Err(e) = frame_sender.send(&msg).await {
                 warn!("send msg failed:{}", e);
@@ -236,23 +229,28 @@ async fn enter_control_loop(
 
         info!("new connection {}:{}", addr, port);
 
-        let id = Uuid::new_v4();
-        DATA_CONNS
-            .get()
-            .unwrap()
-            .insert(id, DataConn { port, stream })
-            .await;
+        let msg_sender_clone = msg_sender.clone();
 
         tokio::spawn(async move {
-            // Remove stale entries to avoid memory leaks.
-            sleep(Duration::from_secs(15)).await;
+            loop {
+                let tcp_pool = TCP_POOL.get().unwrap().get_tcp_stream(port).await;
+                let Some(proxy_stream) = tcp_pool else {
+                    if msg_sender_clone.send(M::C(port)).is_err() {
+                        break;
+                    };
+                    sleep(Duration::from_millis(100)).await;
+                    continue;
+                };
 
-            if DATA_CONNS.get().unwrap().remove(id).await.is_some() {
-                warn!("removed stale connection {}", id);
+                let byte_num = proxy(stream, proxy_stream).await;
+                if let Ok(byte_num) = byte_num {
+                    CTL_CONNS.get().unwrap().add_data(port, byte_num);
+                }
+                break;
             }
         });
 
-        if msg_sender.send(M::C(id)).is_err() {
+        if msg_sender.send(M::C(port)).is_err() {
             return Ok(());
         };
     }

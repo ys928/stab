@@ -12,7 +12,6 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 use tokio::{io::copy_bidirectional, net::TcpStream, time::timeout};
 use tokio_util::codec::{AnyDelimiterCodec, Framed};
-use uuid::Uuid;
 /// Timeout for network connections.
 pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -26,7 +25,7 @@ pub enum M {
     A(String),
 
     /// Accepts an incoming TCP connection, using this stream as a proxy.
-    C(Uuid),
+    C(u16),
 
     /// Heartbeat to sure connection is ok
     H,
