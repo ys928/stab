@@ -10,7 +10,7 @@ use futures::{
 };
 use log::warn;
 use serde::{Deserialize, Serialize};
-use tokio::{io, net::TcpStream, time::timeout};
+use tokio::{io::copy_bidirectional, net::TcpStream, time::timeout};
 use tokio_util::codec::{AnyDelimiterCodec, Framed};
 use uuid::Uuid;
 /// Timeout for network connections.
@@ -170,11 +170,6 @@ impl FrameReceiver {
 
 /// Copy data mutually between two Tcpstreams.
 pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<u64> {
-    let (mut s1_read, mut s1_write) = stream1.split();
-    let (mut s2_read, mut s2_write) = stream2.split();
-    let bytes = tokio::select! {
-        res = io::copy(&mut s1_read, &mut s2_write) => res,
-        res = io::copy(&mut s2_read, &mut s1_write) => res,
-    }?;
-    Ok(bytes)
+    let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
+    Ok(s1.max(s2))
 }
