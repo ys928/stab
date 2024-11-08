@@ -184,8 +184,8 @@ async fn enter_control_loop(
 
     tokio::spawn(async move {
         // try to recv the client's heartbeat
-        while let Ok(msg) = frame_receiver.recv().await {
-            trace!("{} >> {:?}", addr.to_string(), msg);
+        while let Ok(_) = frame_receiver.recv().await {
+            trace!("{} >> heartbeat", addr.to_string());
         }
     });
 
@@ -193,7 +193,7 @@ async fn enter_control_loop(
     tokio::spawn(async move {
         while let Some(msg) = msg_recv.recv().await {
             if let Err(e) = frame_sender.send(&msg).await {
-                error!("send msg failed:{}", e);
+                warn!("send msg failed:{}", e);
                 break;
             }
         }
@@ -206,7 +206,7 @@ async fn enter_control_loop(
         loop {
             sleep(Duration::from_secs(15)).await;
             if let Err(e) = msg_sender_clone.send(M::H) {
-                error!("{}", e);
+                warn!("send heartbeat failed: {}", e);
                 break;
             }
         }
@@ -216,7 +216,7 @@ async fn enter_control_loop(
         // if not existing,exit immediately
         let exist = CTL_CONNS.get().unwrap().contain(port).await;
 
-        if !exist {
+        if !exist || msg_sender.is_closed() {
             return Ok(());
         }
 
