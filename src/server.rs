@@ -103,6 +103,7 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
 
             let ret = enter_control_loop(listener, frame_stream, port, addr).await;
             CTL_CONNS.get().unwrap().remove(port).await;
+            TCP_POOL.get().unwrap().remove(port).await;
             ret?
         }
         M::C(port) => {
