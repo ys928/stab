@@ -3,7 +3,11 @@
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use futures::{sink::SinkExt, StreamExt};
+use futures::{
+    sink::SinkExt,
+    stream::{SplitSink, SplitStream},
+    StreamExt,
+};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use tokio::{io, net::TcpStream, time::timeout};
@@ -14,42 +18,57 @@ pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Messages exchanged between the Local and the server
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Message {
+pub enum M {
     /// init connect and specify port
-    InitPort(u16),
+    I(u16),
 
     /// auth connect
-    Auth(String),
+    A(String),
 
     /// Accepts an incoming TCP connection, using this stream as a proxy.
-    Connect(Uuid),
+    C(Uuid),
 
-    /// sure connection is ok
-    Heartbeat,
+    /// Heartbeat to sure connection is ok
+    H,
 
     /// error info
-    Error(String),
+    E(String),
 }
 
 /// frame stream, used to send/recv a message
-pub struct FrameStream(Framed<TcpStream, AnyDelimiterCodec>);
+pub struct FrameStream {
+    sender: SplitSink<Framed<TcpStream, AnyDelimiterCodec>, String>,
+    receiver: SplitStream<Framed<TcpStream, AnyDelimiterCodec>>,
+}
+
+/// frame sender
+pub struct FrameSender {
+    sender: SplitSink<Framed<TcpStream, AnyDelimiterCodec>, String>,
+}
+
+/// frame receiver
+pub struct FrameReceiver {
+    receiver: SplitStream<Framed<TcpStream, AnyDelimiterCodec>>,
+}
 
 impl FrameStream {
     /// create a new frame stream
     pub fn new(stream: TcpStream) -> Self {
         let codec = AnyDelimiterCodec::new(b"\0".to_vec(), b"\0".to_vec());
-        Self(Framed::new(stream, codec))
+        let frame = Framed::new(stream, codec);
+        let (sender, receiver) = frame.split::<String>();
+        Self { sender, receiver }
     }
 
     /// send message as frame
-    pub async fn send(&mut self, msg: &Message) -> Result<()> {
-        self.0.send(serde_json::to_string(msg)?).await?;
+    pub async fn send(&mut self, msg: &M) -> Result<()> {
+        self.sender.send(serde_json::to_string(msg)?).await?;
         Ok(())
     }
 
     /// recv message as frame
-    pub async fn recv(&mut self) -> Result<Message> {
-        if let Some(msg) = self.0.next().await {
+    pub async fn recv(&mut self) -> Result<M> {
+        if let Some(msg) = self.receiver.next().await {
             let byte_msg = msg.context("recv frame failed")?;
             let msg = serde_json::from_slice(&byte_msg).context("invalid msg")?;
             Ok(msg)
@@ -59,8 +78,12 @@ impl FrameStream {
     }
 
     /// send message as frame
-    pub async fn send_timeout(&mut self, msg: &Message) -> Result<()> {
-        let ret = timeout(NETWORK_TIMEOUT, self.0.send(serde_json::to_string(msg)?)).await;
+    pub async fn send_timeout(&mut self, msg: &M) -> Result<()> {
+        let ret = timeout(
+            NETWORK_TIMEOUT,
+            self.sender.send(serde_json::to_string(msg)?),
+        )
+        .await;
         let Ok(ret) = ret else {
             warn!("send msg timeout:{:?}", msg);
             return Ok(());
@@ -69,20 +92,79 @@ impl FrameStream {
     }
 
     /// recv message within the specified time
-    pub async fn recv_timeout(&mut self) -> Result<Message> {
+    pub async fn recv_timeout(&mut self) -> Result<M> {
         let msg = timeout(NETWORK_TIMEOUT, self.recv()).await??;
         Ok(msg)
     }
 
     /// recv message within the customer time
-    pub async fn recv_self_timeout(&mut self, time: Duration) -> Result<Message> {
+    pub async fn recv_self_timeout(&mut self, time: Duration) -> Result<M> {
         let msg = timeout(time, self.recv()).await??;
         Ok(msg)
     }
 
+    /// split to sender and receiver
+    pub fn split(self) -> (FrameSender, FrameReceiver) {
+        (
+            FrameSender {
+                sender: self.sender,
+            },
+            FrameReceiver {
+                receiver: self.receiver,
+            },
+        )
+    }
+
     /// get the TcpStream
     pub fn stream(self) -> TcpStream {
-        self.0.into_parts().io
+        self.sender.reunite(self.receiver).unwrap().into_parts().io
+    }
+}
+
+impl FrameSender {
+    /// send message as frame
+    pub async fn send(&mut self, msg: &M) -> Result<()> {
+        self.sender.send(serde_json::to_string(msg)?).await?;
+        Ok(())
+    }
+
+    /// send message as frame
+    pub async fn send_timeout(&mut self, msg: &M) -> Result<()> {
+        let ret = timeout(
+            NETWORK_TIMEOUT,
+            self.sender.send(serde_json::to_string(msg)?),
+        )
+        .await;
+        let Ok(ret) = ret else {
+            warn!("send msg timeout:{:?}", msg);
+            return Ok(());
+        };
+        Ok(ret?)
+    }
+}
+
+impl FrameReceiver {
+    /// recv message as frame
+    pub async fn recv(&mut self) -> Result<M> {
+        if let Some(msg) = self.receiver.next().await {
+            let byte_msg = msg.context("recv frame failed")?;
+            let msg = serde_json::from_slice(&byte_msg).context("invalid msg")?;
+            Ok(msg)
+        } else {
+            bail!("no recv msg");
+        }
+    }
+
+    /// recv message within the specified time
+    pub async fn recv_timeout(&mut self) -> Result<M> {
+        let msg = timeout(NETWORK_TIMEOUT, self.recv()).await??;
+        Ok(msg)
+    }
+
+    /// recv message within the customer time
+    pub async fn recv_self_timeout(&mut self, time: Duration) -> Result<M> {
+        let msg = timeout(time, self.recv()).await??;
+        Ok(msg)
     }
 }
 

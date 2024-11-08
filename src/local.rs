@@ -1,9 +1,13 @@
 //! the local module code
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use log::{error, info, trace, warn};
-use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
+use tokio::{
+    net::TcpStream,
+    task::JoinHandle,
+    time::{sleep, timeout},
+};
 use tracing::{debug, trace_span, Instrument};
 use uuid::Uuid;
 
@@ -11,7 +15,7 @@ use anyhow::{anyhow, Context, Result};
 
 use crate::{
     config::{Link, G_CFG},
-    share::{proxy, FrameStream, Message, NETWORK_TIMEOUT},
+    share::{proxy, FrameStream, M, NETWORK_TIMEOUT},
 };
 
 /// run local
@@ -45,27 +49,33 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
 
     let _ = init_port(&mut frame_stream, &link).await?;
 
-    loop {
-        // sure connection is established
-        frame_stream
-            .send_timeout(&Message::Heartbeat)
-            .await
-            .context("heartbeat failed")?;
+    let (mut frame_sender, mut frame_receiver) = frame_stream.split();
 
-        let msg = frame_stream.recv_timeout().await;
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(3)).await;
+            if let Err(e) = frame_sender.send(&M::H).await {
+                error!("{}", e);
+                break;
+            }
+        }
+    });
+
+    loop {
+        let msg = frame_receiver.recv_timeout().await;
         let Ok(msg) = msg else {
             debug!("{:?}", msg.unwrap_err());
             continue;
         };
 
         match msg {
-            Message::InitPort(_) => info!("unexpected init"),
-            Message::Auth(_) => warn!("unexpected auth"),
-            Message::Heartbeat => trace!("server >> heartbeat"),
-            Message::Error(e) => {
+            M::I(_) => info!("unexpected init"),
+            M::A(_) => warn!("unexpected auth"),
+            M::H => trace!("server >> heartbeat"),
+            M::E(e) => {
                 return Err(anyhow!("{}", e));
             }
-            Message::Connect(id) => {
+            M::C(id) => {
                 let link = link.clone();
                 tokio::spawn(async move {
                     info!("new connection");
@@ -87,31 +97,29 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
         return Ok(());
     };
 
-    frame_stream.send(&Message::Auth(secret.clone())).await?;
+    frame_stream.send(&M::A(secret.clone())).await?;
 
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        Message::Auth(_) => Ok(()),
-        Message::Error(e) => Err(anyhow!("{}", e)),
+        M::A(_) => Ok(()),
+        M::E(e) => Err(anyhow!("{}", e)),
         _ => Err(anyhow!("unexpect msg")),
     }
 }
 
 /// send and recv InitPort message with server
 async fn init_port(frame_stream: &mut FrameStream, link: &Arc<Link>) -> Result<()> {
-    frame_stream
-        .send(&Message::InitPort(link.remote.port))
-        .await?;
+    frame_stream.send(&M::I(link.remote.port)).await?;
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        Message::InitPort(port) => {
+        M::I(port) => {
             info!(
                 "{}:{} link to {}:{}",
                 link.local.host, link.local.port, link.remote.host, port
             );
             Ok(())
         }
-        Message::Error(e) => Err(anyhow!("{}", e)),
+        M::E(e) => Err(anyhow!("{}", e)),
         _ => Err(anyhow!("unexpect msg")),
     }
 }
@@ -131,7 +139,7 @@ async fn handle_proxy_connection(id: Uuid, link: &Link) -> Result<()> {
 
     auth(&mut frame_stream).await?;
 
-    frame_stream.send(&Message::Connect(id)).await?;
+    frame_stream.send(&M::C(id)).await?;
 
     let local = connect_with_timeout(&link.local.host, link.local.port).await?;
 

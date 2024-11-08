@@ -5,11 +5,12 @@ use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::sync::mpsc::unbounded_channel;
 
 use crate::config::G_CFG;
 use crate::control::CtlConns;
 use crate::data_conn::DataConns;
-use crate::share::{proxy, FrameStream, Message, NETWORK_TIMEOUT};
+use crate::share::{proxy, FrameStream, M, NETWORK_TIMEOUT};
 use chrono::Local;
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
@@ -97,18 +98,18 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
 
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        Message::InitPort(port) => {
+        M::I(port) => {
             let listener = init_port(&mut frame_stream, port, addr)
                 .await
                 .context("init port failed")?;
 
             let port = listener.local_addr().unwrap().port();
 
-            let ret = enter_control_loop(listener, &mut frame_stream, port, addr).await;
+            let ret = enter_control_loop(listener, frame_stream, port, addr).await;
             CTL_CONNS.get().unwrap().remove(port).await;
             ret?
         }
-        Message::Connect(id) => {
+        M::C(id) => {
             let conn = DATA_CONNS.get().unwrap().remove(id).await;
 
             if conn.is_none() {
@@ -120,9 +121,9 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
                 CTL_CONNS.get().unwrap().add_data(stream2.port, size);
             }
         }
-        Message::Auth(_) => {
+        M::A(_) => {
             frame_stream
-                .send(&Message::Error("unexpected auth".to_string()))
+                .send(&M::E("unexpected auth".to_string()))
                 .await?;
             return Err(anyhow!("unexpect auth message"));
         }
@@ -144,7 +145,7 @@ async fn init_port(
         Ok(listener) => listener,
         Err(e) => {
             frame_stream
-                .send(&Message::Error(format!("create control port failed:{}", e)))
+                .send(&M::E(format!("create control port failed:{}", e)))
                 .await?;
             error!("{}", e);
             return Err(anyhow!("{}", e));
@@ -154,7 +155,7 @@ async fn init_port(
     info!("new client {}", port);
 
     frame_stream
-        .send(&Message::InitPort(port))
+        .send(&M::I(port))
         .await
         .context("send init port failed")?;
 
@@ -173,34 +174,50 @@ async fn init_port(
 /// Handle the establishment of data links corresponding to each control port
 async fn enter_control_loop(
     listener: TcpListener,
-    frame_stream: &mut FrameStream,
+    frame_stream: FrameStream,
     port: u16,
     addr: SocketAddr,
 ) -> Result<()> {
+    let (msg_sender, mut msg_recv) = unbounded_channel();
+
+    let (mut frame_sender, mut frame_receiver) = frame_stream.split();
+
+    tokio::spawn(async move {
+        // try to recv the client's heartbeat
+        while let Ok(msg) = frame_receiver.recv().await {
+            trace!("{} >> {:?}", addr.to_string(), msg);
+        }
+    });
+
+    // send msg to client
+    tokio::spawn(async move {
+        while let Some(msg) = msg_recv.recv().await {
+            if let Err(e) = frame_sender.send(&msg).await {
+                error!("send msg failed:{}", e);
+                break;
+            }
+        }
+    });
+
+    let msg_sender_clone = msg_sender.clone();
+
+    //Heartbeat packet is sent every 15 seconds
+    tokio::spawn(async move {
+        loop {
+            sleep(Duration::from_secs(15)).await;
+            if let Err(e) = msg_sender_clone.send(M::H) {
+                error!("{}", e);
+                break;
+            }
+        }
+    });
+
     loop {
         // if not existing,exit immediately
         let exist = CTL_CONNS.get().unwrap().contain(port).await;
 
         if !exist {
-            frame_stream
-                .send(&Message::Error("server closed this connection".to_string()))
-                .await
-                .context("send close this connection failed")?;
             return Ok(());
-        }
-
-        // check connect is ok
-        frame_stream
-            .send(&Message::Heartbeat)
-            .await
-            .context("send heartbeat failed")?;
-
-        // try to recv the client's heartbeat
-        let msg = frame_stream
-            .recv_self_timeout(Duration::from_millis(200))
-            .await;
-        if msg.is_ok() {
-            trace!("{} >> {:?}", addr.to_string(), msg.unwrap());
         }
 
         let proxy_conn = timeout(NETWORK_TIMEOUT, listener.accept()).await;
@@ -229,10 +246,9 @@ async fn enter_control_loop(
             }
         });
 
-        frame_stream
-            .send(&Message::Connect(id))
-            .await
-            .context("send connect msg failed")?;
+        if msg_sender.send(M::C(id)).is_err() {
+            return Ok(());
+        };
     }
 }
 
@@ -245,21 +261,17 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
     let secret = secret.as_ref().unwrap();
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        Message::Auth(token) => {
+        M::A(token) => {
             if token.cmp(secret).is_eq() {
-                frame_stream.send(&Message::Auth(token)).await?;
+                frame_stream.send(&M::A(token)).await?;
                 return Ok(());
             } else {
-                frame_stream
-                    .send(&Message::Error("auth failed".to_string()))
-                    .await?;
+                frame_stream.send(&M::E("auth failed".to_string())).await?;
                 return Err(anyhow!("auth failed,valid secret:{}", secret));
             }
         }
         _ => {
-            frame_stream
-                .send(&Message::Error("auth failed".to_string()))
-                .await?;
+            frame_stream.send(&M::E("auth failed".to_string())).await?;
             return Err(anyhow!("auth failed,unexpected message!"));
         }
     }
