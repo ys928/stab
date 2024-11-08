@@ -94,7 +94,7 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
 
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        M::I(port) => {
+        M::InitPort(port) => {
             let listener = init_port(&mut frame_stream, port, addr)
                 .await
                 .context("init port failed")?;
@@ -106,16 +106,16 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             TCP_POOL.get().unwrap().remove(port).await;
             ret?
         }
-        M::C(port) => {
+        M::Connect(port) => {
             TCP_POOL
                 .get()
                 .unwrap()
                 .add_tcp_stream(port, frame_stream.stream())
                 .await;
         }
-        M::A(_) => {
+        M::Auth(_) => {
             frame_stream
-                .send(&M::E("unexpected auth".to_string()))
+                .send(&M::Error("unexpected auth".to_string()))
                 .await?;
             return Err(anyhow!("unexpect auth message"));
         }
@@ -137,7 +137,7 @@ async fn init_port(
         Ok(listener) => listener,
         Err(e) => {
             frame_stream
-                .send(&M::E(format!("create control port failed:{}", e)))
+                .send(&M::Error(format!("create control port failed:{}", e)))
                 .await?;
             error!("{}", e);
             return Err(anyhow!("{}", e));
@@ -147,7 +147,7 @@ async fn init_port(
     info!("new client {}", port);
 
     frame_stream
-        .send(&M::I(port))
+        .send(&M::InitPort(port))
         .await
         .context("send init port failed")?;
 
@@ -185,7 +185,7 @@ async fn enter_control_loop(
     tokio::spawn(async move {
         // init tcp stream pool
         for _ in 0..8 {
-            if let Err(e) = frame_sender.send(&M::C(port)).await {
+            if let Err(e) = frame_sender.send(&M::Connect(port)).await {
                 warn!("send msg failed:{}", e);
                 break;
             }
@@ -205,7 +205,7 @@ async fn enter_control_loop(
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(15)).await;
-            if let Err(e) = msg_sender_clone.send(M::H) {
+            if let Err(e) = msg_sender_clone.send(M::Heartbeat) {
                 warn!("send heartbeat failed: {}", e);
                 break;
             }
@@ -236,7 +236,7 @@ async fn enter_control_loop(
             loop {
                 let tcp_pool = TCP_POOL.get().unwrap().get_tcp_stream(port).await;
                 let Some(proxy_stream) = tcp_pool else {
-                    if msg_sender_clone.send(M::C(port)).is_err() {
+                    if msg_sender_clone.send(M::Connect(port)).is_err() {
                         break;
                     };
                     sleep(Duration::from_millis(100)).await;
@@ -251,7 +251,7 @@ async fn enter_control_loop(
             }
         });
 
-        if msg_sender.send(M::C(port)).is_err() {
+        if msg_sender.send(M::Connect(port)).is_err() {
             return Ok(());
         };
     }
@@ -266,17 +266,17 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
     let secret = secret.as_ref().unwrap();
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        M::A(token) => {
+        M::Auth(token) => {
             if token.cmp(secret).is_eq() {
-                frame_stream.send(&M::A(token)).await?;
+                frame_stream.send(&M::Auth(token)).await?;
                 return Ok(());
             } else {
-                frame_stream.send(&M::E("auth failed".to_string())).await?;
+                frame_stream.send(&M::Error("auth failed".to_string())).await?;
                 return Err(anyhow!("auth failed,valid secret:{}", secret));
             }
         }
         _ => {
-            frame_stream.send(&M::E("auth failed".to_string())).await?;
+            frame_stream.send(&M::Error("auth failed".to_string())).await?;
             return Err(anyhow!("auth failed,unexpected message!"));
         }
     }

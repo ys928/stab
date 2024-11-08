@@ -35,7 +35,7 @@ pub async fn run() {
         joins.push(join);
     }
     for join in joins {
-        let _ = join.await.map_err(|e| error!("{}", e));
+        let _ = join.await.map_err(|e| error!("{}", e)); 
     }
 }
 
@@ -54,7 +54,7 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(3)).await;
-            if let Err(e) = frame_sender.send(&M::H).await {
+            if let Err(e) = frame_sender.send(&M::Heartbeat).await {
                 error!("{}", e);
                 break;
             }
@@ -68,13 +68,13 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
         };
 
         match msg {
-            M::I(_) => info!("unexpected init"),
-            M::A(_) => warn!("unexpected auth"),
-            M::H => trace!("server >> heartbeat"),
-            M::E(e) => {
+            M::InitPort(_) => info!("unexpected init"),
+            M::Auth(_) => warn!("unexpected auth"),
+            M::Heartbeat => trace!("server >> heartbeat"),
+            M::Error(e) => {
                 return Err(anyhow!("{}", e));
             }
-            M::C(port) => {
+            M::Connect(port) => {
                 let link = link.clone();
                 tokio::spawn(async move {
                     info!("new connection");
@@ -96,29 +96,29 @@ async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
         return Ok(());
     };
 
-    frame_stream.send(&M::A(secret.clone())).await?;
+    frame_stream.send(&M::Auth(secret.clone())).await?;
 
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        M::A(_) => Ok(()),
-        M::E(e) => Err(anyhow!("{}", e)),
+        M::Auth(_) => Ok(()),
+        M::Error(e) => Err(anyhow!("{}", e)),
         _ => Err(anyhow!("unexpect msg")),
     }
 }
 
 /// send and recv InitPort message with server
 async fn init_port(frame_stream: &mut FrameStream, link: &Arc<Link>) -> Result<()> {
-    frame_stream.send(&M::I(link.remote.port)).await?;
+    frame_stream.send(&M::InitPort(link.remote.port)).await?;
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        M::I(port) => {
+        M::InitPort(port) => {
             info!(
                 "{}:{} link to {}:{}",
                 link.local.host, link.local.port, link.remote.host, port
             );
             Ok(())
         }
-        M::E(e) => Err(anyhow!("{}", e)),
+        M::Error(e) => Err(anyhow!("{}", e)),
         _ => Err(anyhow!("unexpect msg")),
     }
 }
@@ -138,7 +138,7 @@ async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
 
     auth(&mut frame_stream).await?;
 
-    frame_stream.send(&M::C(port)).await?;
+    frame_stream.send(&M::Connect(port)).await?;
 
     let local = connect_with_timeout(&link.local.host, link.local.port).await?;
 

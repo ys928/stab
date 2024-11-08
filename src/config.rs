@@ -241,16 +241,15 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
     }
 
     if let Some(c) = file_config.local {
-        if c.links.is_some() {
-            for link in c.links.unwrap().iter() {
-                let lin = parse_link(&link, c.to.as_deref());
+        let links = c.links.unwrap_or_default();
+        for link in links {
+            let lin = parse_link(&link, c.to.as_deref());
 
-                let Ok(lin) = lin else {
-                    panic!("parse link failed: {:?}", link);
-                };
+            let Ok(lin) = lin else {
+                panic!("parse link failed: {:?}", link);
+            };
 
-                stab_config.links.push(Arc::new(lin));
-            }
+            stab_config.links.push(Arc::new(lin));
         }
     }
 }
@@ -404,27 +403,20 @@ fn parse_address(
     if addr.len() > 2 {
         return None;
     }
+    let mut address = Address::default();
+
     // host or port
     if addr.len() == 1 {
         let port = addr[0].parse::<u16>();
-        if port.is_err() {
-            let host = addr[0].to_string();
-            let Some(default_port) = default_port else {
-                return None;
-            };
-            return Some(Address {
-                host,
-                port: default_port,
-            });
+        if let Ok(port) = port {
+            address.host = default_host?.to_string();
+            address.port = port;
         } else {
-            let Some(default_host) = default_host else {
-                return None;
-            };
-            return Some(Address {
-                host: default_host.to_string(),
-                port: port.unwrap(),
-            });
+            let host = addr[0].to_string();
+            address.host = host;
+            address.port = default_port?;
         }
+        return Some(address);
     }
 
     // host:port
@@ -433,8 +425,7 @@ fn parse_address(
         error!("{}", port.unwrap_err());
         return None;
     };
-    return Some(Address {
-        host: addr[0].to_string(),
-        port,
-    });
+    address.host = addr[0].to_string();
+    address.port = port;
+    return Some(address);
 }

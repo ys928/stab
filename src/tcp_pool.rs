@@ -1,4 +1,4 @@
-//! data connect
+//! tcp pool module
 
 use std::collections::{HashMap, LinkedList};
 

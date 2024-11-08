@@ -8,7 +8,6 @@ use futures::{
     stream::{SplitSink, SplitStream},
     StreamExt,
 };
-use log::warn;
 use serde::{Deserialize, Serialize};
 use tokio::{io::copy_bidirectional, net::TcpStream, time::timeout};
 use tokio_util::codec::{AnyDelimiterCodec, Framed};
@@ -19,19 +18,24 @@ pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Debug, Serialize, Deserialize)]
 pub enum M {
     /// init connect and specify port
-    I(u16),
+    #[serde(rename = "I")]
+    InitPort(u16),
 
     /// auth connect
-    A(String),
+    #[serde(rename = "A")]
+    Auth(String),
 
     /// Accepts an incoming TCP connection, using this stream as a proxy.
-    C(u16),
+    #[serde(rename = "C")]
+    Connect(u16),
 
     /// Heartbeat to sure connection is ok
-    H,
+    #[serde(rename = "H")]
+    Heartbeat,
 
     /// error info
-    E(String),
+    #[serde(rename = "E")]
+    Error(String),
 }
 
 /// frame stream, used to send/recv a message
@@ -76,29 +80,9 @@ impl FrameStream {
         }
     }
 
-    /// send message as frame
-    pub async fn send_timeout(&mut self, msg: &M) -> Result<()> {
-        let ret = timeout(
-            NETWORK_TIMEOUT,
-            self.sender.send(serde_json::to_string(msg)?),
-        )
-        .await;
-        let Ok(ret) = ret else {
-            warn!("send msg timeout:{:?}", msg);
-            return Ok(());
-        };
-        Ok(ret?)
-    }
-
     /// recv message within the specified time
     pub async fn recv_timeout(&mut self) -> Result<M> {
         let msg = timeout(NETWORK_TIMEOUT, self.recv()).await??;
-        Ok(msg)
-    }
-
-    /// recv message within the customer time
-    pub async fn recv_self_timeout(&mut self, time: Duration) -> Result<M> {
-        let msg = timeout(time, self.recv()).await??;
         Ok(msg)
     }
 
@@ -126,20 +110,6 @@ impl FrameSender {
         self.sender.send(serde_json::to_string(msg)?).await?;
         Ok(())
     }
-
-    /// send message as frame
-    pub async fn send_timeout(&mut self, msg: &M) -> Result<()> {
-        let ret = timeout(
-            NETWORK_TIMEOUT,
-            self.sender.send(serde_json::to_string(msg)?),
-        )
-        .await;
-        let Ok(ret) = ret else {
-            warn!("send msg timeout:{:?}", msg);
-            return Ok(());
-        };
-        Ok(ret?)
-    }
 }
 
 impl FrameReceiver {
@@ -152,18 +122,6 @@ impl FrameReceiver {
         } else {
             bail!("no recv msg");
         }
-    }
-
-    /// recv message within the specified time
-    pub async fn recv_timeout(&mut self) -> Result<M> {
-        let msg = timeout(NETWORK_TIMEOUT, self.recv()).await??;
-        Ok(msg)
-    }
-
-    /// recv message within the customer time
-    pub async fn recv_self_timeout(&mut self, time: Duration) -> Result<M> {
-        let msg = timeout(time, self.recv()).await??;
-        Ok(msg)
     }
 }
 
