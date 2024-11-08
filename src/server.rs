@@ -1,10 +1,14 @@
 //! the server mode code
 
 use anyhow::{anyhow, Context, Result};
-use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::{
+    net::SocketAddr,
+    sync::{
+        atomic::{AtomicU16, Ordering},
+        OnceLock,
+    },
+    time::Duration,
+};
 use tokio::sync::mpsc::unbounded_channel;
 
 use crate::config::G_CFG;
@@ -14,8 +18,10 @@ use crate::share::{proxy, FrameStream, M, NETWORK_TIMEOUT};
 use chrono::Local;
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::{sleep, timeout};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    time::{sleep, timeout},
+};
 use tracing::{debug, debug_span, Instrument};
 use uuid::Uuid;
 

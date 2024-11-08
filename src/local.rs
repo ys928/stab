@@ -8,10 +8,10 @@ use tokio::{
     task::JoinHandle,
     time::{sleep, timeout},
 };
-use tracing::{debug, trace_span, Instrument};
+use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     config::{Link, G_CFG},
@@ -62,10 +62,9 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
     });
 
     loop {
-        let msg = frame_receiver.recv_timeout().await;
+        let msg = frame_receiver.recv().await;
         let Ok(msg) = msg else {
-            debug!("{:?}", msg.unwrap_err());
-            continue;
+            bail!("{:?}", msg.unwrap_err());
         };
 
         match msg {

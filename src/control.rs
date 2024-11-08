@@ -63,7 +63,7 @@ impl CtlConns {
                                 time: data.time.clone(),
                                 data: data.data + size,
                             };
-                            ctl_conns.insert(port, Arc::new(info));
+                            *data = Arc::new(info);
                         }
                     }
                     CtlOpt::Contain(sender, port) => {
