@@ -229,7 +229,7 @@ async fn enter_control_loop(
         let req_queue = REQ_QUEUE.get().unwrap();
         let tcp_pool = TCP_POOL.get().unwrap();
         while ctl_conns.contain(port).await {
-            if let Some(req_stream) = req_queue.get_tcp_stream(port).await {
+            while let Some(req_stream) = req_queue.get_tcp_stream(port).await {
                 let proxy_stream = loop {
                     let proxy_stream = tcp_pool.get_tcp_stream(port).await;
                     let Some(proxy_stream) = proxy_stream else {
@@ -244,6 +244,8 @@ async fn enter_control_loop(
                     }
                 });
             }
+
+            sleep(Duration::from_millis(5)).await;
         }
     });
 
