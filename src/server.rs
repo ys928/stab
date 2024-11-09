@@ -236,6 +236,10 @@ async fn enter_control_loop(
 
         let msg_sender_clone = msg_sender.clone();
 
+        if msg_sender.send(Msg::Connect(port, None)).is_err() {
+            return Ok(());
+        };
+
         tokio::spawn(async move {
             loop {
                 let tcp_pool = TCP_POOL.get().unwrap().get_tcp_stream(port).await;
@@ -254,10 +258,6 @@ async fn enter_control_loop(
                 break;
             }
         });
-
-        if msg_sender.send(Msg::Connect(port, None)).is_err() {
-            return Ok(());
-        };
     }
 }
 
