@@ -1,6 +1,6 @@
 [package]
 name = "stab"
-version = "0.2.8"
+version = "0.3.0"
 authors = ["ys928 <it_yushi@163.com>"]
 edition = "2021"
 description = "a simple CLI tool for making tunnels to localhost"
