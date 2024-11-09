@@ -122,7 +122,7 @@ impl FrameReceiver {
 }
 
 /// Copy data mutually between two Tcpstreams.
-pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<u64> {
+pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<(u64, u64)> {
     let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
-    Ok(s1 + s2)
+    Ok((s1, s2))
 }

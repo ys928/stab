@@ -16,7 +16,7 @@ enum CtlOpt {
     Insert(ShotSender, u16, CtlConInfo),
     Remove(u16),
     Contain(oneshot::Sender<bool>, u16),
-    AddData(u16, u64),
+    AddData(u16, u64, u64),
     View(oneshot::Sender<Vec<Arc<CtlConInfo>>>),
 }
 
@@ -49,14 +49,16 @@ impl CtlConns {
                     CtlOpt::Remove(port) => {
                         let _ = ctl_conns.remove(&port);
                     }
-                    CtlOpt::AddData(port, size) => {
+                    CtlOpt::AddData(port, up, down) => {
                         let data = ctl_conns.get_mut(&port);
                         if let Some(data) = data {
                             let info = CtlConInfo {
                                 port,
                                 src: data.src.clone(),
                                 time: data.time.clone(),
-                                data: data.data + size,
+                                upstream: data.upstream + up,
+                                downstream: data.downstream + down,
+                                total: data.total + up + down,
                             };
                             *data = Arc::new(info);
                         }
@@ -102,8 +104,10 @@ impl CtlConns {
     }
 
     /// add data
-    pub fn add_data(&self, port: u16, size: u64) {
-        self.opt_sender.send(CtlOpt::AddData(port, size)).unwrap();
+    pub fn add_data(&self, port: u16, up_stream: u64, down_stream: u64) {
+        self.opt_sender
+            .send(CtlOpt::AddData(port, up_stream, down_stream))
+            .unwrap();
     }
 
     /// add data

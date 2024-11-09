@@ -4,19 +4,16 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicU16, Ordering},
-        OnceLock,
+        atomic::{AtomicBool, AtomicU16, Ordering},
+        Arc, OnceLock,
     },
     time::Duration,
 };
 use tokio::sync::mpsc::unbounded_channel;
 
+use crate::share::{FrameStream, Msg, NETWORK_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns, share::proxy};
-use crate::{
-    req_queue::ReqQueue,
-    share::{FrameStream, Msg, NETWORK_TIMEOUT},
-};
 use chrono::Local;
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
@@ -36,15 +33,16 @@ pub struct CtlConInfo {
     pub src: String,
     /// begin time
     pub time: String,
+    /// upstream data size
+    pub upstream: u64,
+    /// downstream data size
+    pub downstream: u64,
     /// transmission data size
-    pub data: u64,
+    pub total: u64,
 }
 
 /// tcp stream pool
 static TCP_POOL: OnceLock<TcpPool> = OnceLock::new();
-
-/// request queue
-static REQ_QUEUE: OnceLock<ReqQueue> = OnceLock::new();
 
 /// All control connect
 pub static CTL_CONNS: OnceLock<CtlConns> = OnceLock::new();
@@ -57,8 +55,6 @@ pub async fn run() {
     CTL_CONNS.set(CtlConns::new()).unwrap();
 
     TCP_POOL.set(TcpPool::new()).unwrap();
-
-    REQ_QUEUE.set(ReqQueue::new()).unwrap();
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
@@ -81,11 +77,11 @@ pub async fn run() {
 
         tokio::spawn(
             async move {
-                info!("incoming control connection");
+                info!("incoming connection");
                 if let Err(err) = handle_control_connection(stream, addr).await {
-                    warn!("control connection {:?} exited with error：{}", addr, err);
+                    warn!("connection {:?} exited with error：{}", addr, err);
                 } else {
-                    info!("control connection {:?} exited", addr);
+                    info!("connection {:?} exited", addr);
                 }
             }
             .instrument(debug_span!("conn", id = Uuid::new_v4().to_string())),
@@ -115,7 +111,6 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             let ret = enter_control_loop(listener, frame_stream, port, addr).await;
             CTL_CONNS.get().unwrap().remove(port);
             TCP_POOL.get().unwrap().remove(port);
-            REQ_QUEUE.get().unwrap().remove(port);
             ret?
         }
         Msg::Connect(port, secret) => {
@@ -168,7 +163,9 @@ async fn init_port(
         port,
         src: addr.to_string(),
         time,
-        data: 0,
+        upstream: 0,
+        downstream: 0,
+        total: 0,
     };
     CTL_CONNS.get().unwrap().insert(port, ctl).await;
     Ok(listener)
@@ -185,10 +182,18 @@ async fn enter_control_loop(
 
     let (mut frame_sender, mut frame_receiver) = frame_stream.split();
 
+    let is_exit = Arc::new(AtomicBool::new(false));
+    let is_exit_clone = is_exit.clone();
     tokio::spawn(async move {
         // try to recv the client's heartbeat
         while let Ok(_) = frame_receiver.recv().await {
             trace!("{} >> heartbeat", addr.to_string());
+
+            let is_exit = is_exit.load(Ordering::Relaxed);
+            if is_exit {
+                info!("recv msg loop exit:{}", port);
+                break;
+            }
         }
     });
 
@@ -204,11 +209,17 @@ async fn enter_control_loop(
         }
 
         while let Some(msg) = msg_recv.recv().await {
+            let Some(msg) = msg else {
+                info!("send msg loop exit:{}", port);
+                break;
+            };
+
             if let Err(e) = frame_sender.send(&msg).await {
-                warn!("send msg failed:{}", e);
+                warn!("send msg loop exit:{},err:{}", port, e);
                 break;
             }
         }
+        is_exit_clone.store(true, Ordering::Relaxed);
     });
 
     let msg_sender_clone = msg_sender.clone();
@@ -217,35 +228,10 @@ async fn enter_control_loop(
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(15)).await;
-            if let Err(e) = msg_sender_clone.send(Msg::Heartbeat) {
-                warn!("send heartbeat failed: {}", e);
+            if let Err(e) = msg_sender_clone.send(Some(Msg::Heartbeat)) {
+                info!("send heartbeat loop exit:{} err:{}", port, e);
                 break;
             }
-        }
-    });
-
-    tokio::spawn(async move {
-        let ctl_conns = CTL_CONNS.get().unwrap();
-        let req_queue = REQ_QUEUE.get().unwrap();
-        let tcp_pool = TCP_POOL.get().unwrap();
-        while ctl_conns.contain(port).await {
-            while let Some(req_stream) = req_queue.get_tcp_stream(port).await {
-                let proxy_stream = loop {
-                    let proxy_stream = tcp_pool.get_tcp_stream(port).await;
-                    let Some(proxy_stream) = proxy_stream else {
-                        continue;
-                    };
-                    break proxy_stream;
-                };
-                tokio::spawn(async move {
-                    let byte_num = proxy(req_stream, proxy_stream).await;
-                    if let Ok(byte_num) = byte_num {
-                        CTL_CONNS.get().unwrap().add_data(port, byte_num);
-                    }
-                });
-            }
-
-            sleep(Duration::from_millis(5)).await;
         }
     });
 
@@ -254,7 +240,8 @@ async fn enter_control_loop(
         let exist = CTL_CONNS.get().unwrap().contain(port).await;
 
         if !exist || msg_sender.is_closed() {
-            return Ok(());
+            let _ = msg_sender.send(None);
+            break;
         }
 
         let proxy_conn = timeout(NETWORK_TIMEOUT, listener.accept()).await;
@@ -267,12 +254,36 @@ async fn enter_control_loop(
 
         info!("new connection {}:{}", addr, port);
 
-        if msg_sender.send(Msg::Connect(port, None)).is_err() {
-            return Ok(());
+        if msg_sender.send(Some(Msg::Connect(port, None))).is_err() {
+            let _ = msg_sender.send(None);
+            break;
         };
 
-        REQ_QUEUE.get().unwrap().add_tcp_stream(port, stream);
+        tokio::spawn(async move {
+            loop {
+                let tcp_pool = TCP_POOL.get().unwrap();
+                let proxy_stream = tcp_pool.get_tcp_stream(port).await;
+                let Some(proxy_stream) = proxy_stream else {
+                    break;
+                };
+
+                let Some(proxy_stream) = proxy_stream else {
+                    sleep(Duration::from_millis(5)).await;
+                    continue;
+                };
+
+                let byte_num = proxy(stream, proxy_stream).await;
+                if let Ok((down, up)) = byte_num {
+                    CTL_CONNS.get().unwrap().add_data(port, up, down);
+                }
+                break;
+            }
+        });
     }
+
+    info!("control connect exit:{}", port);
+
+    Ok(())
 }
 
 /// authenticate client

@@ -58,7 +58,9 @@
                 <th>Time</th>
                 <th>Port</th>
                 <th>Local</th>
-                <th>Data</th>
+                <th>Upstream</th>
+                <th>Downstream</th>
+                <th>Total</th>
                 <th>Operation</th>
             </tr>
         </thead>
@@ -86,8 +88,14 @@
                 let td_time = document.createElement('td');
                 td_time.innerText = data[i].time;
                 
-                let td_data = document.createElement('td');
-                td_data.innerText = formatBytes(data[i].data);
+                let td_upstream = document.createElement('td');
+                td_upstream.innerText = formatBytes(data[i].upstream);
+
+                let td_downstream = document.createElement('td');
+                td_downstream.innerText = formatBytes(data[i].downstream);
+
+                let td_total = document.createElement('td');
+                td_total.innerText = formatBytes(data[i].total);
 
                 let del = document.createElement('button')
                 del.innerText = "Delete";
@@ -109,7 +117,13 @@
                 
                 tr.appendChild(td_src);
                 
-                tr.appendChild(td_data);
+                tr.appendChild(td_upstream);
+
+                tr.appendChild(td_downstream);
+
+                tr.appendChild(td_upstream);
+
+                tr.appendChild(td_total);
 
                 tr.appendChild(td_delete);
 

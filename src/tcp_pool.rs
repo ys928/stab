@@ -1,6 +1,6 @@
 //! tcp pool module
 
-use std::collections::{HashMap, LinkedList};
+use std::collections::{HashMap, VecDeque};
 
 use tokio::{
     net::TcpStream,
@@ -10,9 +10,7 @@ use tokio::{
     },
 };
 
-use crate::config::G_CFG;
-
-type ShotSender = oneshot::Sender<Option<TcpStream>>;
+type ShotSender = oneshot::Sender<Option<Option<TcpStream>>>;
 
 enum MapOpt {
     AddTcpStream(u16, TcpStream),
@@ -31,15 +29,12 @@ impl TcpPool {
     pub fn new() -> Self {
         let (opt_sender, mut opt_receiver) = unbounded_channel::<MapOpt>();
         tokio::spawn(async move {
-            let mut tcp_pool: HashMap<u16, LinkedList<TcpStream>> = HashMap::new();
+            let mut tcp_pool: HashMap<u16, VecDeque<TcpStream>> = HashMap::new();
             while let Some(opt) = opt_receiver.recv().await {
                 match opt {
                     MapOpt::AddTcpStream(port, tcp_stream) => {
-                        let tcp_pool = tcp_pool.entry(port).or_insert(LinkedList::new());
-                        let pool_size = G_CFG.get().unwrap().pool_size as usize;
-                        if tcp_pool.len() < pool_size {
-                            tcp_pool.push_back(tcp_stream);
-                        }
+                        let tcp_pool = tcp_pool.entry(port).or_insert(VecDeque::new());
+                        tcp_pool.push_back(tcp_stream);
                     }
                     MapOpt::Remove(port) => {
                         let _ = tcp_pool.remove(&port);
@@ -47,7 +42,7 @@ impl TcpPool {
                     MapOpt::GetTcpStream(sender, port) => {
                         let tcp_stream = tcp_pool.get_mut(&port);
                         if let Some(links) = tcp_stream {
-                            sender.send(links.pop_front()).unwrap();
+                            sender.send(Some(links.pop_front())).unwrap();
                         } else {
                             sender.send(None).unwrap();
                         }
@@ -66,7 +61,7 @@ impl TcpPool {
     }
 
     /// insert new value
-    pub async fn get_tcp_stream(&self, port: u16) -> Option<TcpStream> {
+    pub async fn get_tcp_stream(&self, port: u16) -> Option<Option<TcpStream>> {
         let (sender, receiver) = oneshot::channel();
         self.opt_sender
             .send(MapOpt::GetTcpStream(sender, port))
