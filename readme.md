@@ -8,6 +8,16 @@
 
 这是一个现代、简单、小巧的高性能 TCP 隧道工具，可轻松将本地端口暴露给远程服务器。
 
+下图为stab与bore之间的性能对比：
+
+![image](https://github.com/user-attachments/assets/47ada59e-1203-4dba-b309-7a034fc641d2)
+
+环境为wsl ubuntu 24.04，压测命令为：
+
+```bash
+ ab -n 100000 -c 5000 http://127.0.0.1:2000/
+```
+
 ### 1.安装
 
 如果你安装了 rust 开发环境，那么使用 cargo 命令是最简单的方式：
