@@ -16,18 +16,14 @@ pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Messages exchanged between the Local and the server
 #[derive(Debug, Serialize, Deserialize)]
-pub enum M {
-    /// init connect and specify port
+pub enum Msg {
+    /// init connect,specify port and auth
     #[serde(rename = "I")]
-    InitPort(u16),
+    InitPort(u16, Option<String>),
 
-    /// auth connect
-    #[serde(rename = "A")]
-    Auth(String),
-
-    /// Accepts an incoming TCP connection, using this stream as a proxy.
+    /// Accepts an incoming TCP connection, using this stream as a proxy, and auth.
     #[serde(rename = "C")]
-    Connect(u16),
+    Connect(u16, Option<String>),
 
     /// Heartbeat to sure connection is ok
     #[serde(rename = "H")]
@@ -64,13 +60,13 @@ impl FrameStream {
     }
 
     /// send message as frame
-    pub async fn send(&mut self, msg: &M) -> Result<()> {
+    pub async fn send(&mut self, msg: &Msg) -> Result<()> {
         self.sender.send(serde_json::to_string(msg)?).await?;
         Ok(())
     }
 
     /// recv message as frame
-    pub async fn recv(&mut self) -> Result<M> {
+    pub async fn recv(&mut self) -> Result<Msg> {
         if let Some(msg) = self.receiver.next().await {
             let byte_msg = msg.context("recv frame failed")?;
             let msg = serde_json::from_slice(&byte_msg).context("invalid msg")?;
@@ -81,7 +77,7 @@ impl FrameStream {
     }
 
     /// recv message within the specified time
-    pub async fn recv_timeout(&mut self) -> Result<M> {
+    pub async fn recv_timeout(&mut self) -> Result<Msg> {
         let msg = timeout(NETWORK_TIMEOUT, self.recv()).await??;
         Ok(msg)
     }
@@ -106,7 +102,7 @@ impl FrameStream {
 
 impl FrameSender {
     /// send message as frame
-    pub async fn send(&mut self, msg: &M) -> Result<()> {
+    pub async fn send(&mut self, msg: &Msg) -> Result<()> {
         self.sender.send(serde_json::to_string(msg)?).await?;
         Ok(())
     }
@@ -114,7 +110,7 @@ impl FrameSender {
 
 impl FrameReceiver {
     /// recv message as frame
-    pub async fn recv(&mut self) -> Result<M> {
+    pub async fn recv(&mut self) -> Result<Msg> {
         if let Some(msg) = self.receiver.next().await {
             let byte_msg = msg.context("recv frame failed")?;
             let msg = serde_json::from_slice(&byte_msg).context("invalid msg")?;
@@ -128,5 +124,5 @@ impl FrameReceiver {
 /// Copy data mutually between two Tcpstreams.
 pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<u64> {
     let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
-    Ok(s1.max(s2))
+    Ok(s1 + s2)
 }

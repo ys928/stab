@@ -1,6 +1,6 @@
 //! the server mode code
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::{
     net::SocketAddr,
     sync::{
@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::share::{FrameStream, M, NETWORK_TIMEOUT};
+use crate::share::{FrameStream, Msg, NETWORK_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns, share::proxy};
 use chrono::Local;
@@ -89,12 +89,15 @@ pub async fn run() {
 async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Result<()> {
     let mut frame_stream = FrameStream::new(stream);
 
-    // authentication client
-    auth(&mut frame_stream).await?;
-
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        M::InitPort(port) => {
+        Msg::InitPort(port, secret) => {
+            if !auth(&secret) {
+                frame_stream
+                    .send(&Msg::Error("auth failed".to_string()))
+                    .await?;
+                bail!("auth failed:{} {:?} {:?}", port, addr, secret);
+            }
             let listener = init_port(&mut frame_stream, port, addr)
                 .await
                 .context("init port failed")?;
@@ -106,22 +109,22 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             TCP_POOL.get().unwrap().remove(port).await;
             ret?
         }
-        M::Connect(port) => {
+        Msg::Connect(port, secret) => {
+            if !auth(&secret) {
+                frame_stream
+                    .send(&Msg::Error("auth failed".to_string()))
+                    .await?;
+                bail!("auth failed:{} {:?} {:?}", port, addr, secret);
+            }
+
             TCP_POOL
                 .get()
                 .unwrap()
                 .add_tcp_stream(port, frame_stream.stream())
                 .await;
         }
-        M::Auth(_) => {
-            frame_stream
-                .send(&M::Error("unexpected auth".to_string()))
-                .await?;
-            return Err(anyhow!("unexpect auth message"));
-        }
         _ => {
-            warn!("unexpect message: {:?}", msg);
-            return Err(anyhow!("unexpect msg"));
+            bail!("unexpect msg:{:?}", msg);
         }
     }
     Ok(())
@@ -137,7 +140,7 @@ async fn init_port(
         Ok(listener) => listener,
         Err(e) => {
             frame_stream
-                .send(&M::Error(format!("create control port failed:{}", e)))
+                .send(&Msg::Error(format!("create control port failed:{}", e)))
                 .await?;
             error!("{}", e);
             return Err(anyhow!("{}", e));
@@ -147,7 +150,7 @@ async fn init_port(
     info!("new client {}", port);
 
     frame_stream
-        .send(&M::InitPort(port))
+        .send(&Msg::InitPort(port, None))
         .await
         .context("send init port failed")?;
 
@@ -185,7 +188,7 @@ async fn enter_control_loop(
     tokio::spawn(async move {
         // init tcp stream pool
         for _ in 0..8 {
-            if let Err(e) = frame_sender.send(&M::Connect(port)).await {
+            if let Err(e) = frame_sender.send(&Msg::Connect(port, None)).await {
                 warn!("send msg failed:{}", e);
                 break;
             }
@@ -205,7 +208,7 @@ async fn enter_control_loop(
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(15)).await;
-            if let Err(e) = msg_sender_clone.send(M::Heartbeat) {
+            if let Err(e) = msg_sender_clone.send(Msg::Heartbeat) {
                 warn!("send heartbeat failed: {}", e);
                 break;
             }
@@ -236,7 +239,7 @@ async fn enter_control_loop(
             loop {
                 let tcp_pool = TCP_POOL.get().unwrap().get_tcp_stream(port).await;
                 let Some(proxy_stream) = tcp_pool else {
-                    if msg_sender_clone.send(M::Connect(port)).is_err() {
+                    if msg_sender_clone.send(Msg::Connect(port, None)).is_err() {
                         break;
                     };
                     sleep(Duration::from_millis(100)).await;
@@ -251,35 +254,26 @@ async fn enter_control_loop(
             }
         });
 
-        if msg_sender.send(M::Connect(port)).is_err() {
+        if msg_sender.send(Msg::Connect(port, None)).is_err() {
             return Ok(());
         };
     }
 }
 
 /// authenticate client
-async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
-    let secret = &G_CFG.get().unwrap().secret;
-    if secret.is_none() {
-        return Ok(());
+fn auth(local_secret: &Option<String>) -> bool {
+    let server_secret = &G_CFG.get().unwrap().secret;
+    if local_secret.is_none() && server_secret.is_none() {
+        return true;
     }
-    let secret = secret.as_ref().unwrap();
-    let msg = frame_stream.recv_timeout().await?;
-    match msg {
-        M::Auth(token) => {
-            if token.cmp(secret).is_eq() {
-                frame_stream.send(&M::Auth(token)).await?;
-                return Ok(());
-            } else {
-                frame_stream.send(&M::Error("auth failed".to_string())).await?;
-                return Err(anyhow!("auth failed,valid secret:{}", secret));
-            }
-        }
-        _ => {
-            frame_stream.send(&M::Error("auth failed".to_string())).await?;
-            return Err(anyhow!("auth failed,unexpected message!"));
+    if server_secret.is_some() && local_secret.is_some() {
+        let server_secret = server_secret.as_ref().unwrap();
+        let local_secret = local_secret.as_ref().unwrap();
+        if server_secret.eq(local_secret) {
+            return true;
         }
     }
+    false
 }
 
 /// create a tcp listener for a port

@@ -15,7 +15,7 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     config::{Link, G_CFG},
-    share::{proxy, FrameStream, M, NETWORK_TIMEOUT},
+    share::{proxy, FrameStream, Msg, NETWORK_TIMEOUT},
 };
 
 /// run local
@@ -35,7 +35,7 @@ pub async fn run() {
         joins.push(join);
     }
     for join in joins {
-        let _ = join.await.map_err(|e| error!("{}", e)); 
+        let _ = join.await.map_err(|e| error!("{}", e));
     }
 }
 
@@ -45,8 +45,6 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
 
     let mut frame_stream = FrameStream::new(stream);
 
-    let _ = auth(&mut frame_stream).await?;
-
     let _ = init_port(&mut frame_stream, &link).await?;
 
     let (mut frame_sender, mut frame_receiver) = frame_stream.split();
@@ -54,7 +52,7 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
     tokio::spawn(async move {
         loop {
             sleep(Duration::from_secs(3)).await;
-            if let Err(e) = frame_sender.send(&M::Heartbeat).await {
+            if let Err(e) = frame_sender.send(&Msg::Heartbeat).await {
                 error!("{}", e);
                 break;
             }
@@ -68,13 +66,12 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
         };
 
         match msg {
-            M::InitPort(_) => info!("unexpected init"),
-            M::Auth(_) => warn!("unexpected auth"),
-            M::Heartbeat => trace!("server >> heartbeat"),
-            M::Error(e) => {
+            Msg::InitPort(_, _) => info!("unexpected init"),
+            Msg::Heartbeat => trace!("server >> heartbeat"),
+            Msg::Error(e) => {
                 return Err(anyhow!("{}", e));
             }
-            M::Connect(port) => {
+            Msg::Connect(port, _) => {
                 let link = link.clone();
                 tokio::spawn(async move {
                     info!("new connection");
@@ -88,37 +85,23 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
     }
 }
 
-/// authentication info to server
-async fn auth(frame_stream: &mut FrameStream) -> Result<()> {
-    let secret = &G_CFG.get().unwrap().secret;
-
-    let Some(secret) = secret else {
-        return Ok(());
-    };
-
-    frame_stream.send(&M::Auth(secret.clone())).await?;
-
-    let msg = frame_stream.recv_timeout().await?;
-    match msg {
-        M::Auth(_) => Ok(()),
-        M::Error(e) => Err(anyhow!("{}", e)),
-        _ => Err(anyhow!("unexpect msg")),
-    }
-}
-
 /// send and recv InitPort message with server
 async fn init_port(frame_stream: &mut FrameStream, link: &Arc<Link>) -> Result<()> {
-    frame_stream.send(&M::InitPort(link.remote.port)).await?;
+    let secret = &G_CFG.get().unwrap().secret;
+
+    frame_stream
+        .send(&Msg::InitPort(link.remote.port, secret.clone()))
+        .await?;
     let msg = frame_stream.recv_timeout().await?;
     match msg {
-        M::InitPort(port) => {
+        Msg::InitPort(port, _) => {
             info!(
                 "{}:{} link to {}:{}",
                 link.local.host, link.local.port, link.remote.host, port
             );
             Ok(())
         }
-        M::Error(e) => Err(anyhow!("{}", e)),
+        Msg::Error(e) => Err(anyhow!("{}", e)),
         _ => Err(anyhow!("unexpect msg")),
     }
 }
@@ -136,9 +119,11 @@ async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
     let stream = connect_with_timeout(&link.remote.host, G_CFG.get().unwrap().port).await?;
     let mut frame_stream = FrameStream::new(stream);
 
-    auth(&mut frame_stream).await?;
+    let secret = &G_CFG.get().unwrap().secret;
 
-    frame_stream.send(&M::Connect(port)).await?;
+    frame_stream
+        .send(&Msg::Connect(port, secret.clone()))
+        .await?;
 
     let local = connect_with_timeout(&link.local.host, link.local.port).await?;
 
