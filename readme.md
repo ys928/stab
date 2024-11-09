@@ -51,7 +51,8 @@ stab server -c 7777
 
 其中`0.0.0.0:5656`代表控制端口，而`http://localhost:3400`则代表 web 服务，你可以打开该链接查看当前所有连接到本服务器的客户端信息，并可以主动手动断开该链接：
 
-![image](https://github.com/ys928/stab/assets/80371119/8ee0615f-5e44-46bf-868b-f3f8bf99fbe5)
+![image](https://github.com/user-attachments/assets/24cc756a-6e59-424d-bf99-344ef4d4dc4c)
+
 
 ### 3.本地
 
