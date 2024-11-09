@@ -8,6 +8,7 @@ use config::G_CFG;
 pub mod config;
 pub mod control;
 pub mod local;
+pub mod req_queue;
 pub mod server;
 pub mod share;
 pub mod tcp_pool;

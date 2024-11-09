@@ -62,10 +62,6 @@ async fn get_connects() -> Json<Vec<CtlConInfo>> {
 
 /// delete a connection
 async fn del_connect(Path(port): Path<u16>) -> StatusCode {
-    let ret = CTL_CONNS.get().unwrap().remove(port).await;
-    if ret.is_none() {
-        StatusCode::NOT_FOUND
-    } else {
-        StatusCode::OK
-    }
+    CTL_CONNS.get().unwrap().remove(port);
+    StatusCode::OK
 }

@@ -11,9 +11,12 @@ use std::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::share::{FrameStream, Msg, NETWORK_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns, share::proxy};
+use crate::{
+    req_queue::ReqQueue,
+    share::{FrameStream, Msg, NETWORK_TIMEOUT},
+};
 use chrono::Local;
 use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
@@ -40,6 +43,9 @@ pub struct CtlConInfo {
 /// tcp stream pool
 static TCP_POOL: OnceLock<TcpPool> = OnceLock::new();
 
+/// request queue
+static REQ_QUEUE: OnceLock<ReqQueue> = OnceLock::new();
+
 /// All control connect
 pub static CTL_CONNS: OnceLock<CtlConns> = OnceLock::new();
 
@@ -51,6 +57,8 @@ pub async fn run() {
     CTL_CONNS.set(CtlConns::new()).unwrap();
 
     TCP_POOL.set(TcpPool::new()).unwrap();
+
+    REQ_QUEUE.set(ReqQueue::new()).unwrap();
 
     let addr = format!("0.0.0.0:{}", G_CFG.get().unwrap().port);
 
@@ -105,8 +113,9 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             let port = listener.local_addr().unwrap().port();
 
             let ret = enter_control_loop(listener, frame_stream, port, addr).await;
-            CTL_CONNS.get().unwrap().remove(port).await;
-            TCP_POOL.get().unwrap().remove(port).await;
+            CTL_CONNS.get().unwrap().remove(port);
+            TCP_POOL.get().unwrap().remove(port);
+            REQ_QUEUE.get().unwrap().remove(port);
             ret?
         }
         Msg::Connect(port, secret) => {
@@ -120,8 +129,7 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
             TCP_POOL
                 .get()
                 .unwrap()
-                .add_tcp_stream(port, frame_stream.stream())
-                .await;
+                .add_tcp_stream(port, frame_stream.stream());
         }
         _ => {
             bail!("unexpect msg:{:?}", msg);
@@ -216,6 +224,29 @@ async fn enter_control_loop(
         }
     });
 
+    tokio::spawn(async move {
+        let ctl_conns = CTL_CONNS.get().unwrap();
+        let req_queue = REQ_QUEUE.get().unwrap();
+        let tcp_pool = TCP_POOL.get().unwrap();
+        while ctl_conns.contain(port).await {
+            if let Some(req_stream) = req_queue.get_tcp_stream(port).await {
+                let proxy_stream = loop {
+                    let proxy_stream = tcp_pool.get_tcp_stream(port).await;
+                    let Some(proxy_stream) = proxy_stream else {
+                        continue;
+                    };
+                    break proxy_stream;
+                };
+                tokio::spawn(async move {
+                    let byte_num = proxy(req_stream, proxy_stream).await;
+                    if let Ok(byte_num) = byte_num {
+                        CTL_CONNS.get().unwrap().add_data(port, byte_num);
+                    }
+                });
+            }
+        }
+    });
+
     loop {
         // if not existing,exit immediately
         let exist = CTL_CONNS.get().unwrap().contain(port).await;
@@ -234,30 +265,11 @@ async fn enter_control_loop(
 
         info!("new connection {}:{}", addr, port);
 
-        let msg_sender_clone = msg_sender.clone();
-
         if msg_sender.send(Msg::Connect(port, None)).is_err() {
             return Ok(());
         };
 
-        tokio::spawn(async move {
-            loop {
-                let tcp_pool = TCP_POOL.get().unwrap().get_tcp_stream(port).await;
-                let Some(proxy_stream) = tcp_pool else {
-                    if msg_sender_clone.send(Msg::Connect(port, None)).is_err() {
-                        break;
-                    };
-                    sleep(Duration::from_millis(100)).await;
-                    continue;
-                };
-
-                let byte_num = proxy(stream, proxy_stream).await;
-                if let Ok(byte_num) = byte_num {
-                    CTL_CONNS.get().unwrap().add_data(port, byte_num);
-                }
-                break;
-            }
-        });
+        REQ_QUEUE.get().unwrap().add_tcp_stream(port, stream);
     }
 }
 

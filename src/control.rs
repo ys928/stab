@@ -14,7 +14,7 @@ type ShotSender = oneshot::Sender<Option<Arc<CtlConInfo>>>;
 enum CtlOpt {
     Get(ShotSender, u16),
     Insert(ShotSender, u16, CtlConInfo),
-    Remove(ShotSender, u16),
+    Remove(u16),
     Contain(oneshot::Sender<bool>, u16),
     AddData(u16, u64),
     View(oneshot::Sender<Vec<Arc<CtlConInfo>>>),
@@ -46,13 +46,8 @@ impl CtlConns {
                         let ret = ctl_conns.insert(port, Arc::new(ctl_con_info));
                         sender.send(ret).unwrap();
                     }
-                    CtlOpt::Remove(sender, port) => {
-                        let data = ctl_conns.remove(&port);
-                        if let Some(data) = data {
-                            sender.send(Some(data)).unwrap();
-                        } else {
-                            sender.send(None).unwrap();
-                        }
+                    CtlOpt::Remove(port) => {
+                        let _ = ctl_conns.remove(&port);
                     }
                     CtlOpt::AddData(port, size) => {
                         let data = ctl_conns.get_mut(&port);
@@ -102,11 +97,8 @@ impl CtlConns {
     }
 
     /// remove key
-    pub async fn remove(&self, port: u16) -> Option<Arc<CtlConInfo>> {
-        let (sender, receiver) = oneshot::channel();
-        self.opt_sender.send(CtlOpt::Remove(sender, port)).unwrap();
-        let data = receiver.await.unwrap();
-        data
+    pub fn remove(&self, port: u16) {
+        self.opt_sender.send(CtlOpt::Remove(port)).unwrap();
     }
 
     /// add data

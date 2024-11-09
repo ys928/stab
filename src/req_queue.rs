@@ -22,30 +22,30 @@ enum MapOpt {
 
 /// async map for control conn info
 #[derive(Debug)]
-pub struct TcpPool {
+pub struct ReqQueue {
     opt_sender: UnboundedSender<MapOpt>,
 }
 
-impl TcpPool {
+impl ReqQueue {
     /// create new CtlConns
     pub fn new() -> Self {
         let (opt_sender, mut opt_receiver) = unbounded_channel::<MapOpt>();
         tokio::spawn(async move {
-            let mut tcp_pool: HashMap<u16, LinkedList<TcpStream>> = HashMap::new();
+            let mut req_queue: HashMap<u16, LinkedList<TcpStream>> = HashMap::new();
             while let Some(opt) = opt_receiver.recv().await {
                 match opt {
                     MapOpt::AddTcpStream(port, tcp_stream) => {
-                        let tcp_pool = tcp_pool.entry(port).or_insert(LinkedList::new());
+                        let tcp_pool = req_queue.entry(port).or_insert(LinkedList::new());
                         let pool_size = G_CFG.get().unwrap().pool_size as usize;
                         if tcp_pool.len() < pool_size {
                             tcp_pool.push_back(tcp_stream);
                         }
                     }
                     MapOpt::Remove(port) => {
-                        let _ = tcp_pool.remove(&port);
+                        let _ = req_queue.remove(&port);
                     }
                     MapOpt::GetTcpStream(sender, port) => {
-                        let tcp_stream = tcp_pool.get_mut(&port);
+                        let tcp_stream = req_queue.get_mut(&port);
                         if let Some(links) = tcp_stream {
                             sender.send(links.pop_front()).unwrap();
                         } else {
