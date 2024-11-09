@@ -41,6 +41,8 @@ pub struct StabConfig {
     pub port_range: Range<u16>,
     /// web manage server port
     pub web_port: u16,
+    /// connect pool size
+    pub pool_size: u16,
 }
 
 /// the command line arguments
@@ -83,6 +85,10 @@ pub struct StabArgs {
     /// web manage server port
     #[clap(short, long, value_name = "server mode")]
     pub web_port: Option<u16>,
+
+    /// pool size,default 8
+    #[clap(long, value_name = "pool size")]
+    pub pool_size: Option<u16>,
 }
 /// the run mode
 #[derive(Copy, Clone, Debug, ValueEnum, Deserialize, PartialEq)]
@@ -147,6 +153,8 @@ pub struct ServerConfig {
     web_port: Option<u16>,
     /// port range to use
     port_range: Option<String>,
+    /// pool size
+    pool_size: Option<u16>,
 }
 
 /// parse config from command line arguments,must first be called
@@ -164,6 +172,7 @@ pub fn init_config() {
         links: Vec::new(),
         port_range: 1024..65535,
         web_port: 3400,
+        pool_size: 8,
     };
 
     if args.file.is_some() {
@@ -173,6 +182,7 @@ pub fn init_config() {
     args.mode.map(|m| stab_config.mode = m);
     args.control_port.map(|c| stab_config.port = c);
     args.log.map(|l| stab_config.log = l);
+    args.pool_size.map(|p| stab_config.pool_size = p);
 
     // hash secret
     if let Some(secret) = args.secret {
@@ -205,6 +215,7 @@ pub fn init_config() {
         links: Vec::new(),
         port_range: 1024..65535,
         web_port: 3400,
+        pool_size: 8,
     };
     G_CFG.get_or_init(|| stab_config);
 }
@@ -236,6 +247,7 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
     }
     if let Some(s) = file_config.server {
         s.web_port.map(|p| stab_config.web_port = p);
+        s.pool_size.map(|p| stab_config.pool_size = p);
         let p_range = s.port_range.unwrap_or("1024-65535".to_string());
         stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
     }

@@ -123,6 +123,7 @@ log_path = "logs"      # Set the log saving location. The default is the logs di
 [server]
 web_port = 80 # Set web port
 port_range = "2000-3000" # Set the range of ports allowed to use
+pool_size = 8            # Set the connection pool size, default to 8 
 ```
 
 Apply this configuration file:

@@ -4,20 +4,19 @@
     <a href="readme_en.md">English</a>
 </p>
 
-
 # stab
 
-这是一个现代、简单、小巧的高性能TCP隧道工具，可轻松将本地端口暴露给远程服务器。
+这是一个现代、简单、小巧的高性能 TCP 隧道工具，可轻松将本地端口暴露给远程服务器。
 
 ### 1.安装
 
-如果你安装了rust开发环境，那么使用cargo命令是最简单的方式：
+如果你安装了 rust 开发环境，那么使用 cargo 命令是最简单的方式：
 
 ```bash
 cargo install stab
 ```
 
-如果没有cargo，那么你可以直接去[release](https://github.com/ys928/stab/releases)下载已经编译好的程序使用。
+如果没有 cargo，那么你可以直接去[release](https://github.com/ys928/stab/releases)下载已经编译好的程序使用。
 
 ### 2.服务器
 
@@ -27,7 +26,7 @@ cargo install stab
 stab server
 ```
 
-这将启动stab的服务器模式，其默认的控制端口为5746，但您可以修改：
+这将启动 stab 的服务器模式，其默认的控制端口为 5746，但您可以修改：
 
 ```bash
 stab server -c 7777
@@ -40,7 +39,7 @@ stab server -c 7777
 15:52:21 [INFO] stab::web:29 => web server:http://localhost:3400
 ```
 
-其中`0.0.0.0:5656`代表控制端口，而`http://localhost:3400`则代表web服务，你可以打开该链接查看当前所有连接到本服务器的客户端信息，并可以主动手动断开该链接：
+其中`0.0.0.0:5656`代表控制端口，而`http://localhost:3400`则代表 web 服务，你可以打开该链接查看当前所有连接到本服务器的客户端信息，并可以主动手动断开该链接：
 
 ![image](https://github.com/ys928/stab/assets/80371119/8ee0615f-5e44-46bf-868b-f3f8bf99fbe5)
 
@@ -74,13 +73,13 @@ stab local -c 7777 --link 8000=server.com
 
 ### 4.示例
 
-假设你在`server.com`中启动了stab服务器模式：
+假设你在`server.com`中启动了 stab 服务器模式：
 
 ```bash
 stab server
 ```
 
-并且你在本地端口8000启动了一个web服务器，之后你就可以通过`stab`连接到服务器来暴露本地的web服务：
+并且你在本地端口 8000 启动了一个 web 服务器，之后你就可以通过`stab`连接到服务器来暴露本地的 web 服务：
 
 ```bash
 stab local -l 8000=server.com
@@ -92,7 +91,7 @@ stab local -l 8000=server.com
 15:54:59 [INFO] stab::client:101 => 127.0.0.1:8000 link to server.com:1024
 ```
 
-此时，你就能通过 `server.com:1024` 访问到你的本地web服务。
+此时，你就能通过 `server.com:1024` 访问到你的本地 web 服务。
 
 ### 5.密钥
 
@@ -108,9 +107,9 @@ stab server -s test
 stab local -l 8000=your.server.com -s test
 ```
 
-### 6.Toml配置（推荐）
+### 6.Toml 配置（推荐）
 
-除了使用命令行参数外，你可以通过toml配置文件的方式配置所有选项。
+除了使用命令行参数外，你可以通过 toml 配置文件的方式配置所有选项。
 
 服务器配置文件实例`server.toml`：
 
@@ -124,6 +123,7 @@ log_path = "logs"      # 设置日志保存位置，默认为当前目录下的l
 [server]
 web_port = 80            # 设置web端口
 port_range = "2000-3000" # 设置允许使用的端口范围
+pool_size = 8            # 设置连接池大小，默认8个
 ```
 
 应用该配置文件：

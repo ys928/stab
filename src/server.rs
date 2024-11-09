@@ -187,7 +187,8 @@ async fn enter_control_loop(
     // send msg to client
     tokio::spawn(async move {
         // init tcp stream pool
-        for _ in 0..8 {
+        let pool_size = G_CFG.get().unwrap().pool_size as usize;
+        for _ in 0..pool_size {
             if let Err(e) = frame_sender.send(&Msg::Connect(port, None)).await {
                 warn!("send msg failed:{}", e);
                 break;

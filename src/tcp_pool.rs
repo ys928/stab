@@ -10,6 +10,8 @@ use tokio::{
     },
 };
 
+use crate::config::G_CFG;
+
 type ShotSender = oneshot::Sender<Option<TcpStream>>;
 
 enum MapOpt {
@@ -33,10 +35,11 @@ impl TcpPool {
             while let Some(opt) = opt_receiver.recv().await {
                 match opt {
                     MapOpt::AddTcpStream(port, tcp_stream) => {
-                        tcp_pool
-                            .entry(port)
-                            .or_insert(LinkedList::new())
-                            .push_back(tcp_stream);
+                        let tcp_pool = tcp_pool.entry(port).or_insert(LinkedList::new());
+                        let pool_size = G_CFG.get().unwrap().pool_size as usize;
+                        if tcp_pool.len() < pool_size {
+                            tcp_pool.push_back(tcp_stream);
+                        }
                     }
                     MapOpt::Remove(port) => {
                         let _ = tcp_pool.remove(&port);
