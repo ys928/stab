@@ -8,7 +8,16 @@
 
 这是一个现代、简单、小巧的高性能 TCP 隧道工具，可轻松将本地端口暴露给远程服务器。
 
-下图为stab与bore之间的性能对比：
+主要特点：
+
+- 人性化
+- 性能极高
+- 心跳检测
+- 流量统计
+- 允许手动断开链接
+- 允许暴露多个本地端口
+
+下图为stab与[bore](https://github.com/ekzhang/bore)之间的性能对比：
 
 ![image](https://github.com/user-attachments/assets/47ada59e-1203-4dba-b309-7a034fc641d2)
 

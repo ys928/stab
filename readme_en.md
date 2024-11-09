@@ -8,6 +8,24 @@
 
 This is a modern, simple, lightweight, and high-performance TCP tunnel tool for easily exposing local ports to remote servers.
 
+Main features:
+- humanized
+- ultra high performance
+- heartbeat detection
+- traffic statistics
+- Allow manual disconnection
+- Allow exposure of multiple local ports 
+
+The following figure shows the performance comparison between stab and [bore](https://github.com/ekzhang/bore): 
+
+![image](https://github.com/user-attachments/assets/47ada59e-1203-4dba-b309-7a034fc641d2)
+
+The environment is wsl ubuntu 24.04, and the pressure test command is: 
+
+```bash
+ ab -n 100000 -c 5000 http://127.0.0.1:2000/
+```
+
 ### 1.Installation 
 
 If you have the Rust development environment installed, the easiest way is to use the cargo command:
