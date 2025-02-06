@@ -17,23 +17,23 @@ repository = "https://github.com/ys928/stab"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.41.0", features = ["full"] }
-serde = { version = "1.0.214", features = ["derive"] }
-serde_json = "1.0.132"
-log = "0.4.22"
+tokio = { version = "1.43", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
 tracing = "0.1"
-uuid = { version = "1.11.0", features = ["serde", "v4"] }
-clap = { version = "4.5.20", features = ["derive"] }
-anstyle = "1.0.10"
-sha2 = "0.10.8"
-axum = "0.7.7"
-chrono = "0.4.38"
-toml = "0.8.19"
-tracing-subscriber = { version = "0.3.18", features = ["chrono", "time"] }
-anyhow = "1.0.93"
-tracing-appender = "0.2.3"
-tokio-util = { version = "0.7.12", features = ["codec"] }
-futures = "0.3.31"
+uuid = { version = "1.11", features = ["serde", "v4"] }
+clap = { version = "4.5", features = ["derive"] }
+anstyle = "1.0"
+sha2 = "0.10"
+axum = "0.8"
+chrono = "0.4"
+toml = "0.8"
+tracing-subscriber = { version = "0.3.19", features = ["chrono", "time"] }
+anyhow = "1.0"
+tracing-appender = "0.2"
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
 
 [profile.release]
 strip = true      # Automatically strip symbols from the binary.
