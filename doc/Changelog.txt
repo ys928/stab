@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
+
+When cutting a release, add a new section for the version (matching the git tag
+without the leading "v", e.g. tag v0.3.1 → heading "## 0.3.1"), then push the
+tag from the main branch. GitHub Actions will publish that section as the
+release notes.
+
+## 0.3.0 - 2025-01-01
+
+### Added
+- Multi-platform release builds for Linux, macOS, and Windows (amd64 / arm64).
+- Automatic GitHub Release publishing from version tags on main.
+- Release notes sourced from `doc/Changelog.txt`.
+
+### Changed
+- Existing features retained from the 0.3.0 line (TCP tunnel CLI, web dashboard,
+  heartbeat, traffic stats, multi-port links).

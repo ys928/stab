@@ -1,7 +1,7 @@
 <p align="left">
     <span>中文</span>
     <span> • </span>
-    <a href="readme_en.md">English</a>
+    <a href="doc/readme_en.md">English</a>
 </p>
 
 # stab
@@ -10,22 +10,11 @@
 
 主要特点：
 
-- 人性化
 - 性能极高
 - 心跳检测
 - 流量统计
 - 允许手动断开链接
 - 允许暴露多个本地端口
-
-下图为stab与[bore](https://github.com/ekzhang/bore)之间的性能对比：
-
-![image](https://github.com/user-attachments/assets/47ada59e-1203-4dba-b309-7a034fc641d2)
-
-环境为wsl ubuntu 24.04，压测命令为：
-
-```bash
- ab -n 100000 -c 5000 http://127.0.0.1:2000/
-```
 
 ### 1.安装
 

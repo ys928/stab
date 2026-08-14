@@ -8,36 +8,65 @@ on:
     tags:
       - v[0-9]+.*
   workflow_dispatch:
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
+  create-release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
         with:
+          # Only allow tags whose commit is reachable from main.
+          branch: main
+          # Version notes are taken from the matching section in this file.
+          changelog: doc/Changelog.txt
           token: ${{ secrets.GITHUB_TOKEN }}
+
   upload:
-    needs: release
+    needs: create-release
     strategy:
+      fail-fast: false
       matrix:
         include:
+          # Linux amd64 / arm64
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          # macOS amd64 / arm64
           - target: x86_64-apple-darwin
             os: macos-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          # Windows amd64 / arm64
           - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          # (required) Binary name (non-extension portion of filename) to build and upload.
           bin: stab
           target: ${{ matrix.target }}
           tar: unix
           zip: windows
+          include: LICENSE,readme.md,readme_en.md,doc/Changelog.txt
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  update-release-branch:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Point release branch at this tag
+        run: |
+          set -eux
+          git fetch origin "${{ github.ref }}" --tags
+          git push origin "refs/tags/${{ github.ref_name }}:refs/heads/release" --force
