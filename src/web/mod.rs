@@ -20,7 +20,7 @@ pub async fn run() {
     let app = Router::new()
         .route("/", get(root))
         .route("/api/connects", get(get_connects))
-        .route("/api/connects/:port", delete(del_connect));
+        .route("/api/connects/{port}", delete(del_connect));
 
     let port = G_CFG.get().unwrap().web_port;
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await;
@@ -32,17 +32,20 @@ pub async fn run() {
     axum::serve(listener, app).await.unwrap();
 }
 
-/// basic handler that responds with a static string
-#[cfg(not(test))]
+/// Serve the management page.
+///
+/// Debug builds reload from disk (edit HTML without rebuild).
+/// Release builds embed the file at compile time.
 async fn root() -> Html<String> {
-    let str = include_str!("index.html");
-    Html(str.to_string())
-}
-
-#[cfg(test)]
-async fn root() -> Html<String> {
-    let str = std::fs::read_to_string("./src/web/index.html");
-    return Html(str.unwrap());
+    #[cfg(debug_assertions)]
+    {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/web/index.html");
+        Html(std::fs::read_to_string(path).expect("read index.html"))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        Html(include_str!("index.html").to_string())
+    }
 }
 
 /// get all connections

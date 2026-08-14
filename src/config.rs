@@ -157,13 +157,8 @@ pub struct ServerConfig {
     pool_size: Option<u16>,
 }
 
-/// parse config from command line arguments,must first be called
-#[cfg(not(test))]
-pub fn init_config() {
-    let mut args = StabArgs::parse();
-
-    // default config
-    let mut stab_config = StabConfig {
+fn default_config() -> StabConfig {
+    StabConfig {
         mode: Mode::Server,
         port: 5656,
         log: 5,
@@ -173,23 +168,37 @@ pub fn init_config() {
         port_range: 1024..65535,
         web_port: 3400,
         pool_size: 8,
-    };
+    }
+}
 
-    if args.file.is_some() {
-        init_by_config_file(args.file.unwrap().as_str(), &mut stab_config);
+fn hash_secret(secret: impl AsRef<[u8]>) -> String {
+    format!("{:x}", Sha256::new().chain_update(secret).finalize())
+}
+
+/// Parse CLI / config file and store into [`G_CFG`]. Must be called first.
+pub fn init_config() {
+    let args = StabArgs::parse();
+    let mut stab_config = default_config();
+
+    if let Some(file) = &args.file {
+        init_by_config_file(file, &mut stab_config);
     }
 
-    args.mode.map(|m| stab_config.mode = m);
-    args.control_port.map(|c| stab_config.port = c);
-    args.log.map(|l| stab_config.log = l);
-    args.pool_size.map(|p| stab_config.pool_size = p);
-
-    // hash secret
+    if let Some(m) = args.mode {
+        stab_config.mode = m;
+    }
+    if let Some(c) = args.control_port {
+        stab_config.port = c;
+    }
+    if let Some(l) = args.log {
+        stab_config.log = l;
+    }
+    if let Some(p) = args.pool_size {
+        stab_config.pool_size = p;
+    }
     if let Some(secret) = args.secret {
-        let hashed_secret = Sha256::new().chain_update(secret).finalize();
-        args.secret = Some(format!("{:x}", hashed_secret));
+        stab_config.secret = Some(hash_secret(secret));
     }
-
     if let Some(link) = args.link {
         stab_config.links.push(Arc::new(link));
     }
@@ -198,25 +207,6 @@ pub fn init_config() {
         panic!("No provide links");
     }
 
-    G_CFG.get_or_init(|| stab_config);
-}
-
-#[cfg(test)]
-pub fn init_config() {
-    let hashed_secret = Sha256::new().chain_update("test secret").finalize();
-    let secret = Some(format!("{:x}", hashed_secret));
-
-    let stab_config = StabConfig {
-        mode: Mode::Server,
-        port: 5656,
-        log: 5,
-        log_path: "logs".to_string(),
-        secret,
-        links: Vec::new(),
-        port_range: 1024..65535,
-        web_port: 3400,
-        pool_size: 8,
-    };
     G_CFG.get_or_init(|| stab_config);
 }
 
@@ -242,8 +232,7 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
     file_config.log_path.map(|p| stab_config.log_path = p);
 
     if let Some(s) = file_config.secret {
-        let hashed_secret = Sha256::new().chain_update(s).finalize();
-        stab_config.secret = Some(format!("{:x}", hashed_secret));
+        stab_config.secret = Some(hash_secret(s));
     }
     if let Some(s) = file_config.server {
         s.web_port.map(|p| stab_config.web_port = p);
