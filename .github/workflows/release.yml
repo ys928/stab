@@ -16,7 +16,7 @@ jobs:
   create-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/create-gh-release-action@v1
         with:
           # Only allow tags whose commit is reachable from main.
@@ -48,21 +48,21 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: stab
           target: ${{ matrix.target }}
           tar: unix
           zip: windows
-          include: LICENSE,readme.md,readme_en.md,doc/Changelog.txt
+          include: LICENSE,readme.md,doc/readme_en.md,doc/Changelog.txt
           token: ${{ secrets.GITHUB_TOKEN }}
 
   update-release-branch:
     needs: upload
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Point release branch at this tag
