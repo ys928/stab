@@ -49,14 +49,31 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      # Build only (no archive); upload the bare binary so downloads run without unzipping.
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: stab
           target: ${{ matrix.target }}
-          tar: unix
-          zip: windows
-          include: LICENSE,readme.md,doc/readme_en.md,doc/Changelog.txt
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tar: none
+          zip: none
+          dry-run: true
+          dry-run-intended: true
+      - name: Upload binary
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          target='${{ matrix.target }}'
+          exe_suffix=''
+          case "${target}" in
+            *-windows-*) exe_suffix='.exe' ;;
+          esac
+          src="target/${target}/release/stab${exe_suffix}"
+          asset="stab-${target}${exe_suffix}"
+          cp -- "${src}" "${asset}"
+          chmod +x "${asset}"
+          gh release upload "${{ github.ref_name }}" "${asset}" --clobber
 
   update-release-branch:
     needs: upload
