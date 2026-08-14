@@ -9,13 +9,25 @@ without the leading "v", e.g. tag v0.3.1 → heading "## 0.3.1"), then push the
 tag from the main branch. GitHub Actions will publish that section as the
 release notes.
 
-## 0.3.0 - 2025-01-01
+## 0.3.1 - 2026-08-15
 
 ### Added
+- Redesigned web connections dashboard with a branded live sessions view,
+  connection count, empty state, and clearer disconnect actions.
 - Multi-platform release builds for Linux, macOS, and Windows (amd64 / arm64).
-- Automatic GitHub Release publishing from version tags on main.
-- Release notes sourced from `doc/Changelog.txt`.
+- Automatic GitHub Release publishing from version tags on main, with notes
+  sourced from this changelog.
 
 ### Changed
-- Existing features retained from the 0.3.0 line (TCP tunnel CLI, web dashboard,
-  heartbeat, traffic stats, multi-port links).
+- Simplified config initialization (`default_config` / `hash_secret` helpers)
+  and fixed Axum disconnect route path params to `{port}`.
+- Debug builds reload `index.html` from disk for faster UI iteration.
+- Moved the English readme to `doc/readme_en.md`.
+- Updated dependencies (tokio, axum, clap, serde, serde_json, and others).
+
+## 0.3.0 - 2024-11-09
+
+### Added
+- TCP tunnel CLI with server and local client modes.
+- Web dashboard for viewing connections and disconnecting sessions.
+- Heartbeat detection, traffic stats, and multi-port links.
