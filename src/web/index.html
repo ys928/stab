@@ -4,141 +4,458 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>stab — connections</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
     <style>
-        .styled-table {
-            border-collapse: collapse;
-            margin: 25px 0;
-            font-size: 0.9em;
-            font-family: sans-serif;
-            min-width: 400px;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.15);
-            color: #909399;
-            border-bottom: 2px solid #EBEEF5;
+        :root {
+            --bg-0: #e8efe9;
+            --bg-1: #f4f7f4;
+            --ink: #1a2420;
+            --muted: #5c6b64;
+            --line: rgba(26, 36, 32, 0.1);
+            --surface: rgba(255, 255, 255, 0.72);
+            --surface-solid: #ffffff;
+            --accent: #0f766e;
+            --accent-soft: rgba(15, 118, 110, 0.1);
+            --danger: #b42318;
+            --danger-soft: rgba(180, 35, 24, 0.08);
+            --shadow: 0 18px 50px rgba(26, 36, 32, 0.08);
+            --radius: 14px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+        }
+
+        body {
+            font-family: "Outfit", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(900px 480px at 8% -10%, rgba(15, 118, 110, 0.16), transparent 55%),
+                radial-gradient(700px 420px at 92% 8%, rgba(180, 120, 40, 0.12), transparent 50%),
+                linear-gradient(165deg, var(--bg-1), var(--bg-0));
+            background-attachment: fixed;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.35;
+            background-image:
+                linear-gradient(rgba(26, 36, 32, 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(26, 36, 32, 0.035) 1px, transparent 1px);
+            background-size: 28px 28px;
+            mask-image: radial-gradient(ellipse at center, #000 35%, transparent 80%);
+        }
+
+        .page {
+            position: relative;
+            width: min(1100px, calc(100% - 2rem));
             margin: 0 auto;
+            padding: 2.75rem 0 3.5rem;
         }
 
-        .styled-table thead tr {
-            background-color: #fff;
-            text-align: center;
+        .hero {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1.5rem;
+            margin-bottom: 1.75rem;
+            animation: rise 0.55s ease both;
         }
 
-        .styled-table th,
-        .styled-table td {
-            text-align: center;
-            padding: 12px 15px;
+        .brand {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: clamp(2.4rem, 5vw, 3.4rem);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 0.95;
+        }
+
+        .brand p {
+            margin: 0;
+            max-width: 34ch;
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1.45;
+        }
+
+        .stats {
+            display: flex;
+            gap: 0.75rem;
+            flex-shrink: 0;
+            animation: rise 0.55s ease 0.08s both;
+        }
+
+        .stat {
+            min-width: 7.5rem;
+            padding: 0.85rem 1rem;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--surface);
+            backdrop-filter: blur(10px);
+            box-shadow: var(--shadow);
+        }
+
+        .stat-label {
+            display: block;
+            margin-bottom: 0.2rem;
+            color: var(--muted);
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-family: "IBM Plex Mono", monospace;
+            font-size: 1.35rem;
+            font-weight: 500;
+            color: var(--accent);
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--surface);
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            animation: rise 0.55s ease 0.14s both;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem 1.15rem;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.55));
+        }
+
+        .panel-head h2 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .live {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            color: var(--muted);
+            font-size: 0.85rem;
+        }
+
+        .live::before {
+            content: "";
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.45);
+            animation: pulse 1.8s ease infinite;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        .styled-table {
+            width: 100%;
+            min-width: 720px;
+            border-collapse: collapse;
+            font-size: 0.92rem;
+        }
+
+        .styled-table thead th {
+            padding: 0.85rem 1rem;
+            color: var(--muted);
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            text-align: left;
+            background: rgba(244, 247, 244, 0.85);
+            border-bottom: 1px solid var(--line);
+            white-space: nowrap;
+        }
+
+        .styled-table tbody td {
+            padding: 0.95rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            vertical-align: middle;
         }
 
         .styled-table tbody tr {
-            border-bottom: 1px solid #dddddd;
+            transition: background-color 0.18s ease;
         }
 
-        .styled-table tbody tr:nth-of-type(even) {
-            background-color: #f3f3f3;
+        .styled-table tbody tr:last-child td {
+            border-bottom: 0;
         }
 
-        button {
+        .styled-table tbody tr:hover {
+            background: var(--accent-soft);
+        }
+
+        .mono {
+            font-family: "IBM Plex Mono", monospace;
+            font-size: 0.86rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .port {
+            display: inline-block;
+            padding: 0.18rem 0.5rem;
+            border-radius: 6px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-family: "IBM Plex Mono", monospace;
+            font-size: 0.84rem;
+            font-weight: 500;
+        }
+
+        .traffic {
+            color: var(--ink);
+        }
+
+        .traffic-muted {
+            color: var(--muted);
+        }
+
+        button.delete {
             outline: none;
-            border: 0;
-            color: #F56C6C;
-            background-color: #fff;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: 0.4rem 0.7rem;
+            color: var(--danger);
+            background: var(--danger-soft);
+            font-family: inherit;
+            font-size: 0.82rem;
+            font-weight: 500;
             cursor: pointer;
+            transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
         }
 
-        button:hover {
-            color: #F89898;
+        button.delete:hover {
+            background: rgba(180, 35, 24, 0.14);
+            border-color: rgba(180, 35, 24, 0.18);
+        }
+
+        button.delete:active {
+            transform: translateY(1px);
+        }
+
+        .empty {
+            display: none;
+            padding: 3.25rem 1.5rem;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        .empty.visible {
+            display: block;
+        }
+
+        .empty strong {
+            display: block;
+            margin-bottom: 0.35rem;
+            color: var(--ink);
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        @keyframes rise {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(15, 118, 110, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 8px rgba(15, 118, 110, 0);
+            }
+        }
+
+        @media (max-width: 720px) {
+            .hero {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .stats {
+                width: 100%;
+            }
+
+            .stat {
+                flex: 1;
+            }
         }
     </style>
 </head>
 
 <body>
-    <table class="styled-table">
-        <thead>
-            <tr>
-                <th>Time</th>
-                <th>Port</th>
-                <th>Local</th>
-                <th>Upstream</th>
-                <th>Downstream</th>
-                <th>Total</th>
-                <th>Operation</th>
-            </tr>
-        </thead>
-        <tbody id="table_body">
-        </tbody>
-    </table>
+    <div class="page">
+        <header class="hero">
+            <div class="brand">
+                <h1>stab</h1>
+                <p>Active tunnel connections on this server. Inspect traffic and disconnect when needed.</p>
+            </div>
+            <div class="stats">
+                <div class="stat">
+                    <span class="stat-label">Connections</span>
+                    <span class="stat-value" id="conn_count">—</span>
+                </div>
+            </div>
+        </header>
+
+        <section class="panel">
+            <div class="panel-head">
+                <h2>Live sessions</h2>
+                <span class="live">live</span>
+            </div>
+            <div class="table-wrap">
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Port</th>
+                            <th>Local</th>
+                            <th>Upstream</th>
+                            <th>Downstream</th>
+                            <th>Total</th>
+                            <th>Operation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table_body"></tbody>
+                </table>
+            </div>
+            <div class="empty" id="empty_state">
+                <strong>No active connections</strong>
+                Waiting for local clients to link through this server.
+            </div>
+        </section>
+    </div>
 
     <script>
-        let tb = document.querySelector('#table_body');
+        const tb = document.querySelector('#table_body');
+        const emptyState = document.querySelector('#empty_state');
+        const connCount = document.querySelector('#conn_count');
+
         tb.innerHTML = '';
+
         fetch('/api/connects', {
-            method: "GET"
+            method: 'GET'
         }).then(async (resp) => {
-            let data = await resp.json();
+            const data = await resp.json();
+            connCount.textContent = String(data.length);
+
+            if (!data.length) {
+                emptyState.classList.add('visible');
+                return;
+            }
+
             for (let i = 0; i < data.length; i++) {
+                const tr = document.createElement('tr');
 
-                let tr = document.createElement('tr');
-
-                let td_port = document.createElement('td');
-                td_port.innerText = data[i].port;
-
-                let td_src = document.createElement('td');
-                td_src.innerText = data[i].src;
-                
-                let td_time = document.createElement('td');
+                const td_time = document.createElement('td');
+                td_time.className = 'mono traffic-muted';
                 td_time.innerText = data[i].time;
-                
-                let td_upstream = document.createElement('td');
+
+                const td_port = document.createElement('td');
+                const portBadge = document.createElement('span');
+                portBadge.className = 'port';
+                portBadge.innerText = data[i].port;
+                td_port.appendChild(portBadge);
+
+                const td_src = document.createElement('td');
+                td_src.className = 'mono';
+                td_src.innerText = data[i].src;
+
+                const td_upstream = document.createElement('td');
+                td_upstream.className = 'mono traffic';
                 td_upstream.innerText = formatBytes(data[i].upstream);
 
-                let td_downstream = document.createElement('td');
+                const td_downstream = document.createElement('td');
+                td_downstream.className = 'mono traffic';
                 td_downstream.innerText = formatBytes(data[i].downstream);
 
-                let td_total = document.createElement('td');
+                const td_total = document.createElement('td');
+                td_total.className = 'mono traffic';
                 td_total.innerText = formatBytes(data[i].total);
 
-                let del = document.createElement('button')
-                del.innerText = "Delete";
+                const del = document.createElement('button');
+                del.className = 'delete';
+                del.type = 'button';
+                del.innerText = 'Disconnect';
 
                 del.addEventListener('click', () => {
                     fetch(`/api/connects/${data[i].port}`, {
                         method: 'DELETE'
-                    }).then(async (resp) => {
+                    }).then(async () => {
                         tr.remove();
-                    })
+                        const remaining = tb.children.length;
+                        connCount.textContent = String(remaining);
+                        if (!remaining) {
+                            emptyState.classList.add('visible');
+                        }
+                    });
                 });
 
-                let td_delete = document.createElement('td');
-                td_delete.appendChild(del)
+                const td_delete = document.createElement('td');
+                td_delete.appendChild(del);
 
-                tr.appendChild(td_time)
-
+                tr.appendChild(td_time);
                 tr.appendChild(td_port);
-                
                 tr.appendChild(td_src);
-                
                 tr.appendChild(td_upstream);
-
                 tr.appendChild(td_downstream);
-
-                tr.appendChild(td_upstream);
-
                 tr.appendChild(td_total);
-
                 tr.appendChild(td_delete);
 
                 tb.appendChild(tr);
             }
-        })
+        });
 
         function formatBytes(bytes) {
-
             if (bytes === 0) return '0 Bytes';
 
             const k = 1024;
-
             const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-
             const i = Math.floor(Math.log(bytes) / Math.log(k));
 
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
