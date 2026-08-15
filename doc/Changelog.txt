@@ -5,9 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
 When cutting a release, add a new section for the version (matching the git tag
-without the leading "v", e.g. tag v0.3.1 → heading "## 0.3.1"), then push the
+without the leading "v", e.g. tag v0.3.2 → heading "## 0.3.2"), then push the
 tag from the main branch. GitHub Actions will publish that section as the
 release notes.
+
+## 0.3.2 - 2026-08-15
+
+### Added
+- Optional Web dashboard auth via config `web_key` (`x-web-key` on API calls).
+- Local reconnect controls: `retry` and `retry_interval` in config.
+- Android arm64 (`aarch64-linux-android`) release builds.
+- Multi-arch CI coverage alongside release packaging.
+- Release uploads ship bare binaries (no archive) for direct download.
+
+### Changed
+- Server connection maps use `Mutex`; port allocation claims ports atomically
+  to avoid concurrent allocators racing on the same scan cursor.
+- Refreshed Chinese and English docs for current CLI flags and TOML config.
+
+### Fixed
+- Release workflow when `tar`/`zip` are both unset (macOS bash + empty assets).
+- CI trigger so branch pushes run checks without relying on tags-ignore.
 
 ## 0.3.1 - 2026-08-15
 
