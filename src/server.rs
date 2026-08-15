@@ -9,9 +9,12 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::{
+    mpsc::{unbounded_channel, UnboundedSender},
+    oneshot,
+};
 
-use crate::share::{proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT};
+use crate::share::{proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT, PAIR_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns};
 use chrono::Local;
@@ -257,45 +260,68 @@ async fn enter_control_loop(
 
         info!("new connection {}:{}", addr, port);
 
-        if msg_sender.send(Some(Msg::Connect(port, None))).is_err() {
-            let _ = msg_sender.send(None);
-            break;
-        };
-
+        let msg_sender = msg_sender.clone();
         tokio::spawn(async move {
-            let deadline = tokio::time::Instant::now() + NETWORK_TIMEOUT;
-            loop {
-                if tokio::time::Instant::now() >= deadline {
-                    warn!("timeout waiting for proxy stream on port {}", port);
-                    break;
-                }
-
-                let tcp_pool = TCP_POOL.get().unwrap();
-                let proxy_stream = tcp_pool.get_frame_stream(port);
-                // Missing key and empty queue both mean "keep waiting" — the
-                // Connect we just requested may still be in flight.
-                let Some(Some(mut frame_stream)) = proxy_stream else {
-                    sleep(Duration::from_millis(5)).await;
-                    continue;
-                };
-
-                if let Err(e) = frame_stream.send(&Msg::Start).await {
-                    warn!("send Start failed on port {}: {}", port, e);
-                    continue;
-                }
-
-                let (proxy_stream, head) = frame_stream.into_tcp_stream();
-                let byte_num = proxy_with_prepend(stream, proxy_stream, &head).await;
-                if let Ok((down, up)) = byte_num {
-                    CTL_CONNS.get().unwrap().add_data(port, up, down);
-                }
-                break;
+            if let Err(e) = pair_and_proxy(stream, port, msg_sender).await {
+                warn!("proxy on port {} exited: {}", port, e);
             }
         });
     }
 
     info!("control connect exit:{}", port);
 
+    Ok(())
+}
+
+/// Pair a public client TCP stream with a local work connection and proxy.
+async fn pair_and_proxy(
+    client: TcpStream,
+    port: u16,
+    msg_sender: UnboundedSender<Option<Msg>>,
+) -> Result<()> {
+    let pool = TCP_POOL.get().unwrap();
+
+    // Prefer a live idle stream to skip a round-trip. Dead NAT-killed sockets
+    // fail Start quickly (timeout); then flush the rest of the idle queue.
+    while let Some(mut frame_stream) = pool.get_frame_stream(port) {
+        match timeout(NETWORK_TIMEOUT, frame_stream.send(&Msg::Start)).await {
+            Ok(Ok(())) => {
+                // Refill when we consume a pre-pooled connection.
+                let _ = msg_sender.send(Some(Msg::Connect(port, None)));
+                return finish_proxy(port, client, frame_stream).await;
+            }
+            Ok(Err(e)) => warn!("pooled Start failed on port {}: {}", port, e),
+            Err(_) => warn!("pooled Start timed out on port {}", port),
+        }
+        pool.clear_idle(port);
+        break;
+    }
+
+    // Demand a fresh work connection and wait for that specific dial.
+    let (tx, rx) = oneshot::channel();
+    pool.add_waiter(port, tx);
+
+    if msg_sender.send(Some(Msg::Connect(port, None))).is_err() {
+        bail!("control channel closed");
+    }
+
+    let mut frame_stream = timeout(PAIR_TIMEOUT, rx)
+        .await
+        .context("timeout waiting for proxy stream")?
+        .map_err(|_| anyhow!("work connection waiter dropped"))?;
+
+    timeout(NETWORK_TIMEOUT, frame_stream.send(&Msg::Start))
+        .await
+        .context("timeout sending Start")?
+        .context("send Start failed")?;
+
+    finish_proxy(port, client, frame_stream).await
+}
+
+async fn finish_proxy(port: u16, client: TcpStream, frame_stream: FrameStream) -> Result<()> {
+    let (proxy_stream, head) = frame_stream.into_tcp_stream();
+    let (down, up) = proxy_with_prepend(client, proxy_stream, &head).await?;
+    CTL_CONNS.get().unwrap().add_data(port, up, down);
     Ok(())
 }
 

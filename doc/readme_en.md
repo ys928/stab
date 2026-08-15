@@ -155,7 +155,7 @@ log_path = "logs"      # log directory (default logs)
 web_port = 3400          # web dashboard port (default 3400)
 web_key = "web password" # optional web auth key
 port_range = "2000-3000" # inclusive data-port range (default 1024-65535)
-pool_size = 8            # prebuilt connection pool size (default 8)
+pool_size = 0            # idle work connections to prebuild; 0 = on-demand (recommended). >0 may stall reconnects behind NAT
 ```
 
 ```bash

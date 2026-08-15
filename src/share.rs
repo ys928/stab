@@ -18,6 +18,9 @@ use tokio_util::codec::{AnyDelimiterCodec, Framed};
 /// Timeout for network connections.
 pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long the server waits to pair a public client with a local work connection.
+pub const PAIR_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// Messages exchanged between the Local and the server
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Msg {

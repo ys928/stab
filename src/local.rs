@@ -165,7 +165,13 @@ async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
     // Wait until the server pairs a real client. Connecting to the local
     // target earlier leaves idle SSH (etc.) sessions that get killed, and the
     // tunnel then closes as soon as a user connects.
-    match frame_stream.recv().await? {
+    //
+    // Bound the wait so NAT-killed work connections do not leak tasks forever
+    // when the server never sends Start.
+    let msg = timeout(Duration::from_secs(60), frame_stream.recv())
+        .await
+        .context("timeout waiting for Start")??;
+    match msg {
         Msg::Start => {}
         Msg::Error(e) => return Err(anyhow!("{}", e)),
         other => return Err(anyhow!("unexpected msg before start: {:?}", other)),

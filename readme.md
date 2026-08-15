@@ -145,7 +145,7 @@ log_path = "logs"      # 日志目录，默认 logs
 web_port = 3400          # Web 管理端口，默认 3400
 web_key = "web password" # Web 管理页密钥，可选
 port_range = "2000-3000" # 可分配的数据端口范围（含两端），默认 1024-65535
-pool_size = 8            # 预建连接池大小，默认 8
+pool_size = 0            # 预建空闲工作连接数；0=按需建立（推荐）。>0 时经 NAT 久置易失效导致重连卡住
 ```
 
 ```bash

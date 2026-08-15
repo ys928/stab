@@ -92,7 +92,7 @@ pub struct StabArgs {
     #[clap(short, long, value_name = "server mode")]
     pub web_port: Option<u16>,
 
-    /// pool size,default 8
+    /// prebuild this many idle work connections (0 = on-demand, recommended)
     #[clap(long, value_name = "pool size")]
     pub pool_size: Option<u16>,
 }
@@ -180,7 +180,10 @@ fn default_config() -> StabConfig {
         port_range: 1024..=65535,
         web_port: 3400,
         web_key: None,
-        pool_size: 8,
+        // On-demand work connections by default. Pre-pooling (pool_size > 0) can
+        // leave idle TCP sockets that NAT/firewalls silently kill; the server
+        // then blocks on Start to a dead conn and SSH reconnect hangs.
+        pool_size: 0,
         retry: -1,
         retry_interval: 5,
     }
