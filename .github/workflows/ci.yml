@@ -63,12 +63,15 @@ jobs:
           echo "AR_aarch64_linux_android=${toolchain}/llvm-ar" >> "${GITHUB_ENV}"
 
       # Same build path as release, but dry-run only (no upload / no GitHub Release).
+      # asset keeps assets[] non-empty: macOS bash 3.2 + set -u fails on
+      # assets[@] when tar/zip are both none (upstream upload-rust-binary-action).
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: stab
           target: ${{ matrix.target }}
           tar: none
           zip: none
+          asset: LICENSE
           dry-run: true
           dry-run-intended: true
           build-tool: ${{ matrix.build-tool }}
