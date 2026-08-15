@@ -24,7 +24,7 @@ use tracing::{debug, debug_span, error, info, trace, warn, Instrument};
 use uuid::Uuid;
 
 /// connection information
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CtlConInfo {
     /// server port
     pub port: u16,
@@ -166,7 +166,7 @@ async fn init_port(
         downstream: 0,
         total: 0,
     };
-    CTL_CONNS.get().unwrap().insert(port, ctl).await;
+    CTL_CONNS.get().unwrap().insert(port, ctl);
     Ok(listener)
 }
 
@@ -236,7 +236,7 @@ async fn enter_control_loop(
 
     loop {
         // if not existing,exit immediately
-        let exist = CTL_CONNS.get().unwrap().contain(port).await;
+        let exist = CTL_CONNS.get().unwrap().contain(port);
 
         if !exist || msg_sender.is_closed() {
             let _ = msg_sender.send(None);
@@ -261,7 +261,7 @@ async fn enter_control_loop(
         tokio::spawn(async move {
             loop {
                 let tcp_pool = TCP_POOL.get().unwrap();
-                let proxy_stream = tcp_pool.get_tcp_stream(port).await;
+                let proxy_stream = tcp_pool.get_tcp_stream(port);
                 let Some(proxy_stream) = proxy_stream else {
                     break;
                 };
@@ -301,6 +301,23 @@ fn auth(local_secret: &Option<String>) -> bool {
     false
 }
 
+/// Atomically claim the next candidate port in `port_range`.
+fn claim_next_port(port_range: &std::ops::RangeInclusive<u16>) -> u16 {
+    let start = *port_range.start();
+    let end = *port_range.end();
+    loop {
+        let cur = PORT_IDX.load(Ordering::Relaxed);
+        let port = if port_range.contains(&cur) { cur } else { start };
+        let next = if port >= end { start } else { port + 1 };
+        if PORT_IDX
+            .compare_exchange_weak(cur, next, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok()
+        {
+            return port;
+        }
+    }
+}
+
 /// create a tcp listener for a port
 async fn create_listener(port: u16) -> Result<TcpListener> {
     let port_range = &G_CFG.get().unwrap().port_range;
@@ -313,26 +330,15 @@ async fn create_listener(port: u16) -> Result<TcpListener> {
     }
 
     // Client requests any available port in range.
-    let mut port = PORT_IDX.load(Ordering::Relaxed);
-    let mut n = 0;
-    loop {
-        if !port_range.contains(&port) {
-            port = *port_range.start();
+    // Each candidate is claimed atomically so concurrent allocators do not
+    // share the same scan cursor (which could falsely report "not find port").
+    for _ in 0..port_range.len() {
+        let port = claim_next_port(port_range);
+        if let Ok(listener) = try_bind(port).await {
+            return Ok(listener);
         }
-        n += 1;
-
-        if n >= port_range.len() {
-            PORT_IDX.store(*port_range.start(), Ordering::Relaxed);
-            return Err(anyhow!("not find port"));
-        }
-        let ret = try_bind(port).await;
-        if ret.is_err() {
-            port += 1;
-            continue;
-        }
-        PORT_IDX.store(port + 1, Ordering::Relaxed);
-        return ret;
     }
+    Err(anyhow!("not find port"))
 }
 
 /// try to bind a port and return TcpListener

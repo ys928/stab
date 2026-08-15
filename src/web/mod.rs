@@ -77,7 +77,7 @@ async fn root() -> Html<String> {
 
 /// get all connections
 async fn get_connects() -> Json<Vec<CtlConInfo>> {
-    let conn = CTL_CONNS.get().unwrap().view().await;
+    let conn = CTL_CONNS.get().unwrap().view();
     let mut ret = Vec::new();
     for con in conn {
         ret.push(CtlConInfo {
