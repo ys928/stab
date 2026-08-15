@@ -50,7 +50,7 @@ stab server -c 7777 -w 8080
 
 打开 Web 地址可查看当前连接、流量，并手动断开会话。
 
-![image](https://github.com/user-attachments/assets/24cc756a-6e59-424d-bf99-344ef4d4dc4c)
+<img width="2411" height="888" alt="图片" src="https://github.com/user-attachments/assets/f369e950-4cdf-41fa-bec6-c1540fbec6a8" />
 
 也可限制服务端对外暴露的端口范围与连接池大小：
 
