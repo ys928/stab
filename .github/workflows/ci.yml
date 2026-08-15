@@ -2,9 +2,11 @@ name: CI
 
 on:
   push:
-    tags-ignore:
-      # Release workflow already builds tagged versions.
-      - v[0-9]+.*
+    # Listing branches (and omitting tags) runs CI on branch pushes only.
+    # A lone tags-ignore would skip all branch pushes — GitHub treats the
+    # unspecified ref type as excluded. Release already covers version tags.
+    branches:
+      - "**"
   pull_request:
 
 env:
