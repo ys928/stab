@@ -9,6 +9,17 @@ without the leading "v", e.g. tag v0.3.2 → heading "## 0.3.2"), then push the
 tag from the main branch. GitHub Actions will publish that section as the
 release notes.
 
+## 0.3.4 - 2026-08-15
+
+### Fixed
+- SSH reconnect hanging after a long-lived session: NAT-killed idle pooled work
+  connections no longer block `Start` pairing; accepts wait on a fresh dial via
+  oneshot, and `Start` sends are timed out.
+
+### Changed
+- Default `pool_size` is `0` (on-demand work connections). Pre-pooling remains
+  available but is not recommended behind NAT.
+
 ## 0.3.3 - 2026-08-15
 
 ### Fixed
