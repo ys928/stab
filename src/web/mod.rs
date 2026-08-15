@@ -1,17 +1,18 @@
 //! the web server to manage the link
 
 use axum::{
-    extract::Path,
+    extract::{Path, Request},
     http::StatusCode,
-    response::Html,
+    middleware::{self, Next},
+    response::{Html, Response},
     routing::{delete, get},
     Json, Router,
 };
 
-use log::{error, info};
+use tracing::{error, info};
 
 use crate::{
-    config::G_CFG,
+    config::{hash_key, G_CFG},
     server::{CtlConInfo, CTL_CONNS},
 };
 
@@ -20,7 +21,8 @@ pub async fn run() {
     let app = Router::new()
         .route("/", get(root))
         .route("/api/connects", get(get_connects))
-        .route("/api/connects/{port}", delete(del_connect));
+        .route("/api/connects/{port}", delete(del_connect))
+        .layer(middleware::from_fn(web_auth));
 
     let port = G_CFG.get().unwrap().web_port;
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await;
@@ -30,6 +32,31 @@ pub async fn run() {
     };
     info!("web server:http://localhost:{}", port);
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Protect API routes when `web_key` is configured. The HTML shell stays open
+/// so the page can prompt for a key.
+async fn web_auth(req: Request, next: Next) -> Result<Response, StatusCode> {
+    let path = req.uri().path();
+    if !path.starts_with("/api/") {
+        return Ok(next.run(req).await);
+    }
+
+    let Some(expected) = G_CFG.get().unwrap().web_key.as_ref() else {
+        return Ok(next.run(req).await);
+    };
+
+    let provided = req
+        .headers()
+        .get("x-web-key")
+        .and_then(|v| v.to_str().ok())
+        .map(hash_key);
+
+    if provided.as_ref() == Some(expected) {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
 }
 
 /// Serve the management page.

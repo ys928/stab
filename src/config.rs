@@ -1,7 +1,7 @@
 //! the config file
 
 use std::{
-    ops::Range,
+    ops::RangeInclusive,
     sync::{Arc, OnceLock},
 };
 
@@ -13,9 +13,9 @@ use anstyle::{
 use anyhow::{anyhow, Result};
 use clap::{Parser, ValueEnum};
 
-use log::error;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tracing::error;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
@@ -37,12 +37,18 @@ pub struct StabConfig {
     pub secret: Option<String>,
     /// client mode,all link to server
     pub links: Vec<Arc<Link>>,
-    /// server mode,port range
-    pub port_range: Range<u16>,
+    /// server mode,port range (inclusive)
+    pub port_range: RangeInclusive<u16>,
     /// web manage server port
     pub web_port: u16,
+    /// web manage page auth key (hashed); None means no auth
+    pub web_key: Option<String>,
     /// connect pool size
     pub pool_size: u16,
+    /// local reconnect attempts; `-1` means infinite, `0` means no retry
+    pub retry: i32,
+    /// local reconnect interval in seconds
+    pub retry_interval: u64,
 }
 
 /// the command line arguments
@@ -80,7 +86,7 @@ pub struct StabArgs {
 
     /// accepted TCP port number range
     #[clap(short, long,value_name = "server mode", value_parser = cmd_parse_range)]
-    pub port_range: Option<Range<u16>>,
+    pub port_range: Option<RangeInclusive<u16>>,
 
     /// web manage server port
     #[clap(short, long, value_name = "server mode")]
@@ -144,6 +150,10 @@ pub struct LocalConfig {
     links: Option<Vec<String>>,
     /// default server
     to: Option<String>,
+    /// reconnect attempts after disconnect; -1 means infinite, 0 means no retry
+    retry: Option<i32>,
+    /// reconnect interval in seconds
+    retry_interval: Option<u64>,
 }
 
 /// Server configuration
@@ -155,6 +165,8 @@ pub struct ServerConfig {
     port_range: Option<String>,
     /// pool size
     pool_size: Option<u16>,
+    /// web manage page auth key
+    web_key: Option<String>,
 }
 
 fn default_config() -> StabConfig {
@@ -165,14 +177,22 @@ fn default_config() -> StabConfig {
         log_path: "logs".to_string(),
         secret: None,
         links: Vec::new(),
-        port_range: 1024..65535,
+        port_range: 1024..=65535,
         web_port: 3400,
+        web_key: None,
         pool_size: 8,
+        retry: -1,
+        retry_interval: 5,
     }
 }
 
 fn hash_secret(secret: impl AsRef<[u8]>) -> String {
     format!("{:x}", Sha256::new().chain_update(secret).finalize())
+}
+
+/// Hash a plaintext key the same way secrets are stored.
+pub fn hash_key(key: impl AsRef<[u8]>) -> String {
+    hash_secret(key)
 }
 
 /// Parse CLI / config file and store into [`G_CFG`]. Must be called first.
@@ -193,6 +213,9 @@ pub fn init_config() {
     if let Some(l) = args.log {
         stab_config.log = l;
     }
+    if let Some(p) = args.log_path {
+        stab_config.log_path = p;
+    }
     if let Some(p) = args.pool_size {
         stab_config.pool_size = p;
     }
@@ -201,6 +224,12 @@ pub fn init_config() {
     }
     if let Some(link) = args.link {
         stab_config.links.push(Arc::new(link));
+    }
+    if let Some(range) = args.port_range {
+        stab_config.port_range = range;
+    }
+    if let Some(w) = args.web_port {
+        stab_config.web_port = w;
     }
 
     if stab_config.mode == Mode::Local && stab_config.links.is_empty() {
@@ -239,9 +268,18 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
         s.pool_size.map(|p| stab_config.pool_size = p);
         let p_range = s.port_range.unwrap_or("1024-65535".to_string());
         stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
+        if let Some(k) = s.web_key {
+            stab_config.web_key = Some(hash_secret(k));
+        }
     }
 
     if let Some(c) = file_config.local {
+        if let Some(r) = c.retry {
+            stab_config.retry = r;
+        }
+        if let Some(i) = c.retry_interval {
+            stab_config.retry_interval = i;
+        }
         let links = c.links.unwrap_or_default();
         for link in links {
             let lin = parse_link(&link, c.to.as_deref());
@@ -313,8 +351,8 @@ fn cmd_help_styles() -> clap::builder::Styles {
         .placeholder(Style::new().fg_color(Some(Ansi(BrightCyan))))
 }
 
-/// parse port range
-fn cmd_parse_range(s: &str) -> Result<Range<u16>> {
+/// parse port range (inclusive on both ends)
+fn cmd_parse_range(s: &str) -> Result<RangeInclusive<u16>> {
     let err_msg = anyhow!("parse port range failed");
 
     let p: Vec<&str> = s.split("-").collect();
@@ -336,10 +374,10 @@ fn cmd_parse_range(s: &str) -> Result<Range<u16>> {
         return Err(err_msg);
     };
 
-    if min >= max {
+    if min > max {
         return Err(err_msg);
     }
-    Ok(min..max)
+    Ok(min..=max)
 }
 
 fn cmd_parse_link(raw_link: &str) -> Result<Link> {

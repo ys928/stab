@@ -15,13 +15,12 @@ use crate::share::{FrameStream, Msg, NETWORK_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns, share::proxy};
 use chrono::Local;
-use log::{error, info, trace, warn};
 use serde::{Deserialize, Serialize};
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, timeout},
 };
-use tracing::{debug, debug_span, Instrument};
+use tracing::{debug, debug_span, error, info, trace, warn, Instrument};
 use uuid::Uuid;
 
 /// connection information
@@ -318,12 +317,12 @@ async fn create_listener(port: u16) -> Result<TcpListener> {
     let mut n = 0;
     loop {
         if !port_range.contains(&port) {
-            port = port_range.start;
+            port = *port_range.start();
         }
         n += 1;
 
         if n >= port_range.len() {
-            PORT_IDX.store(port_range.start, Ordering::Relaxed);
+            PORT_IDX.store(*port_range.start(), Ordering::Relaxed);
             return Err(anyhow!("not find port"));
         }
         let ret = try_bind(port).await;

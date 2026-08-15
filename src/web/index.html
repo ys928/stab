@@ -287,6 +287,93 @@
             font-weight: 600;
         }
 
+        .auth-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 20;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            background: rgba(26, 36, 32, 0.28);
+            backdrop-filter: blur(6px);
+        }
+
+        .auth-overlay.visible {
+            display: flex;
+            animation: fade 0.25s ease both;
+        }
+
+        .auth-box {
+            width: min(380px, 100%);
+            padding: 1.5rem;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--surface-solid);
+            box-shadow: var(--shadow);
+            animation: rise 0.35s ease both;
+        }
+
+        .auth-box h2 {
+            margin: 0 0 0.35rem;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+
+        .auth-box p {
+            margin: 0 0 1rem;
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+
+        .auth-box input {
+            width: 100%;
+            margin-bottom: 0.85rem;
+            padding: 0.7rem 0.85rem;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #fafcfb;
+            color: var(--ink);
+            font-family: "IBM Plex Mono", monospace;
+            font-size: 0.92rem;
+            outline: none;
+        }
+
+        .auth-box input:focus {
+            border-color: rgba(15, 118, 110, 0.45);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        .auth-box button {
+            width: 100%;
+            border: 0;
+            border-radius: 10px;
+            padding: 0.7rem 1rem;
+            background: var(--accent);
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .auth-box button:hover {
+            filter: brightness(1.05);
+        }
+
+        .auth-error {
+            display: none;
+            margin: 0 0 0.75rem;
+            color: var(--danger);
+            font-size: 0.85rem;
+        }
+
+        .auth-error.visible {
+            display: block;
+        }
+
         @keyframes rise {
             from {
                 opacity: 0;
@@ -296,6 +383,16 @@
             to {
                 opacity: 1;
                 transform: translateY(0);
+            }
+        }
+
+        @keyframes fade {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
             }
         }
 
@@ -329,6 +426,16 @@
 </head>
 
 <body>
+    <div class="auth-overlay" id="auth_overlay">
+        <form class="auth-box" id="auth_form">
+            <h2>Enter web key</h2>
+            <p>This management page is protected. Enter the key from the server config.</p>
+            <p class="auth-error" id="auth_error">Invalid key. Try again.</p>
+            <input id="auth_input" type="password" autocomplete="current-password" placeholder="web_key" required>
+            <button type="submit">Unlock</button>
+        </form>
+    </div>
+
     <div class="page">
         <header class="hero">
             <div class="brand">
@@ -372,16 +479,51 @@
     </div>
 
     <script>
+        const REFRESH_MS = 3000;
+        const KEY_STORAGE = 'stab_web_key';
+
         const tb = document.querySelector('#table_body');
         const emptyState = document.querySelector('#empty_state');
         const connCount = document.querySelector('#conn_count');
+        const authOverlay = document.querySelector('#auth_overlay');
+        const authForm = document.querySelector('#auth_form');
+        const authInput = document.querySelector('#auth_input');
+        const authError = document.querySelector('#auth_error');
 
-        tb.innerHTML = '';
+        let webKey = sessionStorage.getItem(KEY_STORAGE) || '';
+        let refreshTimer = null;
 
-        fetch('/api/connects', {
-            method: 'GET'
-        }).then(async (resp) => {
-            const data = await resp.json();
+        function apiHeaders() {
+            const headers = {};
+            if (webKey) {
+                headers['x-web-key'] = webKey;
+            }
+            return headers;
+        }
+
+        function showAuth(showError) {
+            authOverlay.classList.add('visible');
+            authError.classList.toggle('visible', !!showError);
+            authInput.focus();
+        }
+
+        function hideAuth() {
+            authOverlay.classList.remove('visible');
+            authError.classList.remove('visible');
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function renderRows(data) {
+            tb.innerHTML = '';
             connCount.textContent = String(data.length);
 
             if (!data.length) {
@@ -389,34 +531,37 @@
                 return;
             }
 
+            emptyState.classList.remove('visible');
+
             for (let i = 0; i < data.length; i++) {
+                const item = data[i];
                 const tr = document.createElement('tr');
 
                 const td_time = document.createElement('td');
                 td_time.className = 'mono traffic-muted';
-                td_time.innerText = data[i].time;
+                td_time.innerText = item.time;
 
                 const td_port = document.createElement('td');
                 const portBadge = document.createElement('span');
                 portBadge.className = 'port';
-                portBadge.innerText = data[i].port;
+                portBadge.innerText = item.port;
                 td_port.appendChild(portBadge);
 
                 const td_src = document.createElement('td');
                 td_src.className = 'mono';
-                td_src.innerText = data[i].src;
+                td_src.innerText = item.src;
 
                 const td_upstream = document.createElement('td');
                 td_upstream.className = 'mono traffic';
-                td_upstream.innerText = formatBytes(data[i].upstream);
+                td_upstream.innerText = formatBytes(item.upstream);
 
                 const td_downstream = document.createElement('td');
                 td_downstream.className = 'mono traffic';
-                td_downstream.innerText = formatBytes(data[i].downstream);
+                td_downstream.innerText = formatBytes(item.downstream);
 
                 const td_total = document.createElement('td');
                 td_total.className = 'mono traffic';
-                td_total.innerText = formatBytes(data[i].total);
+                td_total.innerText = formatBytes(item.total);
 
                 const del = document.createElement('button');
                 del.className = 'delete';
@@ -424,15 +569,15 @@
                 del.innerText = 'Disconnect';
 
                 del.addEventListener('click', () => {
-                    fetch(`/api/connects/${data[i].port}`, {
-                        method: 'DELETE'
-                    }).then(async () => {
-                        tr.remove();
-                        const remaining = tb.children.length;
-                        connCount.textContent = String(remaining);
-                        if (!remaining) {
-                            emptyState.classList.add('visible');
+                    fetch(`/api/connects/${item.port}`, {
+                        method: 'DELETE',
+                        headers: apiHeaders()
+                    }).then((resp) => {
+                        if (resp.status === 401) {
+                            showAuth(true);
+                            return;
                         }
+                        refresh();
                     });
                 });
 
@@ -449,17 +594,48 @@
 
                 tb.appendChild(tr);
             }
+        }
+
+        async function refresh() {
+            try {
+                const resp = await fetch('/api/connects', {
+                    method: 'GET',
+                    headers: apiHeaders()
+                });
+
+                if (resp.status === 401) {
+                    showAuth(!!webKey);
+                    return;
+                }
+
+                if (!resp.ok) {
+                    return;
+                }
+
+                hideAuth();
+                const data = await resp.json();
+                renderRows(data);
+            } catch (_) {
+                // keep last snapshot on transient network errors
+            }
+        }
+
+        function startRefresh() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+            refresh();
+            refreshTimer = setInterval(refresh, REFRESH_MS);
+        }
+
+        authForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            webKey = authInput.value.trim();
+            sessionStorage.setItem(KEY_STORAGE, webKey);
+            startRefresh();
         });
 
-        function formatBytes(bytes) {
-            if (bytes === 0) return '0 Bytes';
-
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
+        startRefresh();
     </script>
 </body>
 

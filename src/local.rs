@@ -2,16 +2,14 @@
 
 use std::{sync::Arc, time::Duration};
 
-use log::{error, info, trace, warn};
+use anyhow::{anyhow, bail, Context, Result};
 use tokio::{
     net::TcpStream,
     task::JoinHandle,
     time::{sleep, timeout},
 };
-use tracing::{trace_span, Instrument};
+use tracing::{error, info, trace, trace_span, warn, Instrument};
 use uuid::Uuid;
-
-use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     config::{Link, G_CFG},
@@ -26,9 +24,7 @@ pub async fn run() {
     for link in links {
         let join = tokio::spawn(
             async move {
-                let _ = create_link(link.clone(), port)
-                    .await
-                    .map_err(|e| error!("{:?}:{}", link, e));
+                run_link_with_retry(link.clone(), port).await;
             }
             .instrument(trace_span!("conn", id = Uuid::new_v4().to_string())),
         );
@@ -36,6 +32,45 @@ pub async fn run() {
     }
     for join in joins {
         let _ = join.await.map_err(|e| error!("{}", e));
+    }
+}
+
+/// Keep reconnecting according to retry settings.
+///
+/// `retry = -1` means retry forever; `retry = 0` means never reconnect.
+async fn run_link_with_retry(link: Arc<Link>, port: u16) {
+    let cfg = G_CFG.get().unwrap();
+    let max_retry = cfg.retry;
+    let interval = cfg.retry_interval;
+    let mut attempt: i32 = 0;
+
+    loop {
+        match create_link(link.clone(), port).await {
+            Ok(()) => {
+                warn!("{:?}: link closed", link);
+            }
+            Err(e) => {
+                error!("{:?}:{}", link, e);
+            }
+        }
+
+        if max_retry == 0 {
+            break;
+        }
+
+        attempt = attempt.saturating_add(1);
+        if max_retry > 0 && attempt > max_retry {
+            error!("{:?}: exceeded retry limit ({})", link, max_retry);
+            break;
+        }
+
+        let label = if max_retry < 0 {
+            format!("attempt {attempt}, infinite")
+        } else {
+            format!("attempt {attempt}/{max_retry}")
+        };
+        warn!("{:?}: reconnecting in {}s ({})", link, interval, label);
+        sleep(Duration::from_secs(interval)).await;
     }
 }
 
