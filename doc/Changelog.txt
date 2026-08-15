@@ -9,6 +9,19 @@ without the leading "v", e.g. tag v0.3.2 → heading "## 0.3.2"), then push the
 tag from the main branch. GitHub Actions will publish that section as the
 release notes.
 
+## 0.3.3 - 2026-08-15
+
+### Fixed
+- SSH and other server-speaks-first protocols over the tunnel: work connections
+  no longer dial the local target until the server pairs a real client
+  (`Msg::Start`), so idle sshd sessions are not killed and banners are not lost.
+- Accept path no longer drops clients when the pool is still empty; it waits for
+  an in-flight work connection instead of treating a missing pool key as fatal.
+
+### Changed
+- Data-plane handshake now requires matching server and local builds (new
+  `Start` frame before raw proxying).
+
 ## 0.3.2 - 2026-08-15
 
 ### Added

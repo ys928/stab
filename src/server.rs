@@ -11,9 +11,9 @@ use std::{
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::share::{FrameStream, Msg, NETWORK_TIMEOUT};
+use crate::share::{proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
-use crate::{control::CtlConns, share::proxy};
+use crate::{control::CtlConns};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -120,10 +120,10 @@ async fn handle_control_connection(stream: TcpStream, addr: SocketAddr) -> Resul
                 bail!("auth failed:{} {:?} {:?}", port, addr, secret);
             }
 
-            TCP_POOL
-                .get()
-                .unwrap()
-                .add_tcp_stream(port, frame_stream.stream());
+            // Keep the framed stream in the pool until a client is paired and
+            // we send Msg::Start — so local does not dial the target early
+            // (which breaks SSH and other server-speaks-first protocols).
+            TCP_POOL.get().unwrap().add_frame_stream(port, frame_stream);
         }
         _ => {
             bail!("unexpect msg:{:?}", msg);
@@ -180,6 +180,10 @@ async fn enter_control_loop(
     let (msg_sender, mut msg_recv) = unbounded_channel();
 
     let (mut frame_sender, mut frame_receiver) = frame_stream.split();
+
+    // So accept-path waiters see Some(None) instead of None before the first
+    // work connection is registered.
+    TCP_POOL.get().unwrap().ensure_port(port);
 
     let is_exit = Arc::new(AtomicBool::new(false));
     let is_exit_clone = is_exit.clone();
@@ -259,19 +263,29 @@ async fn enter_control_loop(
         };
 
         tokio::spawn(async move {
+            let deadline = tokio::time::Instant::now() + NETWORK_TIMEOUT;
             loop {
-                let tcp_pool = TCP_POOL.get().unwrap();
-                let proxy_stream = tcp_pool.get_tcp_stream(port);
-                let Some(proxy_stream) = proxy_stream else {
+                if tokio::time::Instant::now() >= deadline {
+                    warn!("timeout waiting for proxy stream on port {}", port);
                     break;
-                };
+                }
 
-                let Some(proxy_stream) = proxy_stream else {
+                let tcp_pool = TCP_POOL.get().unwrap();
+                let proxy_stream = tcp_pool.get_frame_stream(port);
+                // Missing key and empty queue both mean "keep waiting" — the
+                // Connect we just requested may still be in flight.
+                let Some(Some(mut frame_stream)) = proxy_stream else {
                     sleep(Duration::from_millis(5)).await;
                     continue;
                 };
 
-                let byte_num = proxy(stream, proxy_stream).await;
+                if let Err(e) = frame_stream.send(&Msg::Start).await {
+                    warn!("send Start failed on port {}: {}", port, e);
+                    continue;
+                }
+
+                let (proxy_stream, head) = frame_stream.into_tcp_stream();
+                let byte_num = proxy_with_prepend(stream, proxy_stream, &head).await;
                 if let Ok((down, up)) = byte_num {
                     CTL_CONNS.get().unwrap().add_data(port, up, down);
                 }

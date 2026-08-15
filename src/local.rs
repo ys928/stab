@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     config::{Link, G_CFG},
-    share::{proxy, FrameStream, Msg, NETWORK_TIMEOUT},
+    share::{proxy, proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT},
 };
 
 /// run local
@@ -103,6 +103,7 @@ async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
         match msg {
             Msg::InitPort(_, _) => info!("unexpected init"),
             Msg::Heartbeat => trace!("server >> heartbeat"),
+            Msg::Start => info!("unexpected start on control link"),
             Msg::Error(e) => {
                 return Err(anyhow!("{}", e));
             }
@@ -152,6 +153,7 @@ async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream> {
 /// deal connection from server proxy port
 async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
     let stream = connect_with_timeout(&link.remote.host, G_CFG.get().unwrap().port).await?;
+    let _ = stream.set_nodelay(true);
     let mut frame_stream = FrameStream::new(stream);
 
     let secret = &G_CFG.get().unwrap().secret;
@@ -160,9 +162,25 @@ async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
         .send(&Msg::Connect(port, secret.clone()))
         .await?;
 
-    let local = connect_with_timeout(&link.local.host, link.local.port).await?;
+    // Wait until the server pairs a real client. Connecting to the local
+    // target earlier leaves idle SSH (etc.) sessions that get killed, and the
+    // tunnel then closes as soon as a user connects.
+    match frame_stream.recv().await? {
+        Msg::Start => {}
+        Msg::Error(e) => return Err(anyhow!("{}", e)),
+        other => return Err(anyhow!("unexpected msg before start: {:?}", other)),
+    }
 
-    proxy(local, frame_stream.stream()).await?;
+    let (tunnel, head) = frame_stream.into_tcp_stream();
+    let local = connect_with_timeout(&link.local.host, link.local.port).await?;
+    let _ = local.set_nodelay(true);
+
+    if head.is_empty() {
+        proxy(local, tunnel).await?;
+    } else {
+        // Rare: bytes already buffered from the tunnel toward local.
+        proxy_with_prepend(local, tunnel, &head).await?;
+    }
 
     Ok(())
 }

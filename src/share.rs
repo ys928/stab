@@ -9,7 +9,11 @@ use futures::{
     StreamExt,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{io::copy_bidirectional, net::TcpStream, time::timeout};
+use tokio::{
+    io::{copy_bidirectional, AsyncWriteExt},
+    net::TcpStream,
+    time::timeout,
+};
 use tokio_util::codec::{AnyDelimiterCodec, Framed};
 /// Timeout for network connections.
 pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
@@ -24,6 +28,10 @@ pub enum Msg {
     /// Accepts an incoming TCP connection, using this stream as a proxy, and auth.
     #[serde(rename = "C")]
     Connect(u16, Option<String>),
+
+    /// Server signals that a client was paired; local should connect to the target.
+    #[serde(rename = "S")]
+    Start,
 
     /// Heartbeat to sure connection is ok
     #[serde(rename = "H")]
@@ -94,9 +102,11 @@ impl FrameStream {
         )
     }
 
-    /// get the TcpStream
-    pub fn stream(self) -> TcpStream {
-        self.sender.reunite(self.receiver).unwrap().into_parts().io
+    /// Convert back to a raw `TcpStream`, preserving any bytes already buffered
+    /// by the codec (e.g. an SSH banner that arrived with the Connect frame).
+    pub fn into_tcp_stream(self) -> (TcpStream, Vec<u8>) {
+        let parts = self.sender.reunite(self.receiver).unwrap().into_parts();
+        (parts.io, parts.read_buf.to_vec())
     }
 }
 
@@ -125,4 +135,22 @@ impl FrameReceiver {
 pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<(u64, u64)> {
     let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
     Ok((s1, s2))
+}
+
+/// Like [`proxy`], but first writes `prepend` to `stream1`.
+///
+/// `prepend` is data already read from `stream2` (codec leftover) that must
+/// still be delivered to the peer on `stream1`.
+pub async fn proxy_with_prepend(
+    mut stream1: TcpStream,
+    mut stream2: TcpStream,
+    prepend: &[u8],
+) -> Result<(u64, u64)> {
+    let mut extra = 0u64;
+    if !prepend.is_empty() {
+        stream1.write_all(prepend).await?;
+        extra = prepend.len() as u64;
+    }
+    let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
+    Ok((s1, s2 + extra))
 }
