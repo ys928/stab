@@ -2,7 +2,7 @@
 
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -19,7 +19,10 @@ use crate::{
     runtime::{
         set_last_error, set_status, ClientRuntime, LinkManager, LinkRunArgs, LinkStatus,
     },
-    share::{proxy, proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT},
+    share::{
+        proxy, proxy_with_prepend, FrameStream, Msg, HEARTBEAT_INTERVAL_CLIENT, HEARTBEAT_TIMEOUT,
+        NETWORK_TIMEOUT,
+    },
 };
 
 /// run local
@@ -164,14 +167,17 @@ async fn create_link(
 
     let (mut frame_sender, mut frame_receiver) = frame_stream.split();
 
+    let last_server_msg = Arc::new(Mutex::new(Instant::now()));
+    let (dead_tx, mut dead_rx) = oneshot::channel::<String>();
+
     let hb_cancel = cancel.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = hb_cancel.cancelled() => break,
-                _ = sleep(Duration::from_secs(3)) => {
+                _ = sleep(HEARTBEAT_INTERVAL_CLIENT) => {
                     if let Err(e) = frame_sender.send(&Msg::Heartbeat).await {
-                        error!("{}", e);
+                        let _ = dead_tx.send(format!("control send failed: {e}"));
                         break;
                     }
                 }
@@ -184,10 +190,24 @@ async fn create_link(
             _ = cancel.cancelled() => {
                 bail!("cancelled");
             }
+            reason = &mut dead_rx => {
+                let reason = reason.unwrap_or_else(|_| "control send task ended".into());
+                bail!("{reason}");
+            }
+            _ = sleep(Duration::from_secs(5)) => {
+                let elapsed = last_server_msg.lock().unwrap().elapsed();
+                if elapsed > HEARTBEAT_TIMEOUT {
+                    bail!(
+                        "no server heartbeat for {:.0}s",
+                        elapsed.as_secs_f64()
+                    );
+                }
+            }
             msg = frame_receiver.recv() => {
                 let Ok(msg) = msg else {
-                    bail!("{:?}", msg.unwrap_err());
+                    bail!("control recv closed: {:?}", msg.unwrap_err());
                 };
+                *last_server_msg.lock().unwrap() = Instant::now();
 
                 match msg {
                     Msg::InitPort(_, _) => info!("unexpected init"),

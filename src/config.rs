@@ -46,6 +46,8 @@ pub struct StabConfig {
     pub web_key: Option<String>,
     /// connect pool size
     pub pool_size: u16,
+    /// seconds without a client heartbeat before the server kicks the control link
+    pub heartbeat_timeout: u64,
     /// local reconnect attempts; `-1` means infinite, `0` means no retry
     pub retry: i32,
     /// local reconnect interval in seconds
@@ -102,6 +104,10 @@ pub struct StabArgs {
     /// prebuild this many idle work connections (0 = on-demand, recommended)
     #[clap(long, value_name = "pool size")]
     pub pool_size: Option<u16>,
+
+    /// seconds without client heartbeat before kicking (server mode, default 60)
+    #[clap(long, value_name = "seconds")]
+    pub heartbeat_timeout: Option<u64>,
 
     /// enable local IPC API for dynamic control (named pipe / unix socket)
     #[clap(long)]
@@ -186,6 +192,8 @@ pub struct ServerConfig {
     pool_size: Option<u16>,
     /// web manage page auth key
     web_key: Option<String>,
+    /// seconds without client heartbeat before kicking the control link
+    heartbeat_timeout: Option<u64>,
 }
 
 fn default_config() -> StabConfig {
@@ -203,6 +211,7 @@ fn default_config() -> StabConfig {
         // leave idle TCP sockets that NAT/firewalls silently kill; the server
         // then blocks on Start to a dead conn and SSH reconnect hangs.
         pool_size: 0,
+        heartbeat_timeout: 60,
         retry: -1,
         retry_interval: 5,
         api: false,
@@ -244,6 +253,9 @@ pub fn init_config() {
     }
     if let Some(p) = args.pool_size {
         stab_config.pool_size = p;
+    }
+    if let Some(t) = args.heartbeat_timeout {
+        stab_config.heartbeat_timeout = t;
     }
     if let Some(secret) = args.secret {
         stab_config.secret = Some(hash_secret(secret));
@@ -298,6 +310,8 @@ pub fn init_by_config_file(file: &str, stab_config: &mut StabConfig) {
     if let Some(s) = file_config.server {
         s.web_port.map(|p| stab_config.web_port = p);
         s.pool_size.map(|p| stab_config.pool_size = p);
+        s.heartbeat_timeout
+            .map(|t| stab_config.heartbeat_timeout = t);
         let p_range = s.port_range.unwrap_or("1024-65535".to_string());
         stab_config.port_range = cmd_parse_range(p_range.as_str()).unwrap();
         if let Some(k) = s.web_key {

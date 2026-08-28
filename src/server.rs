@@ -4,17 +4,20 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
-        Arc, OnceLock,
+        atomic::{AtomicU16, AtomicU64, Ordering},
+        Arc, Mutex, OnceLock,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::sync::{
     mpsc::{unbounded_channel, UnboundedSender},
     oneshot,
 };
+use tokio_util::sync::CancellationToken;
 
-use crate::share::{proxy_with_stats, FrameStream, Msg, NETWORK_TIMEOUT, PAIR_TIMEOUT};
+use crate::share::{
+    proxy_with_stats, FrameStream, Msg, HEARTBEAT_INTERVAL_SERVER, NETWORK_TIMEOUT, PAIR_TIMEOUT,
+};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns};
 use chrono::Local;
@@ -218,65 +221,125 @@ async fn enter_control_loop(
     // work connection is registered.
     TCP_POOL.get().unwrap().ensure_port(port);
 
-    let is_exit = Arc::new(AtomicBool::new(false));
-    let is_exit_clone = is_exit.clone();
-    tokio::spawn(async move {
-        // try to recv the client's heartbeat
-        while let Ok(_) = frame_receiver.recv().await {
-            trace!("{} >> heartbeat", addr.to_string());
+    let shutdown = CancellationToken::new();
+    let last_client_hb = Arc::new(Mutex::new(Instant::now()));
+    let hb_timeout = Duration::from_secs(G_CFG.get().unwrap().heartbeat_timeout.max(1));
 
-            let is_exit = is_exit.load(Ordering::Relaxed);
-            if is_exit {
-                info!("recv msg loop exit:{}", port);
-                break;
+    // Recv client heartbeats; any framed message counts as liveness.
+    let shutdown_recv = shutdown.clone();
+    let last_hb = last_client_hb.clone();
+    let msg_sender_recv = msg_sender.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = shutdown_recv.cancelled() => break,
+                result = frame_receiver.recv() => {
+                    match result {
+                        Ok(_) => {
+                            *last_hb.lock().unwrap() = Instant::now();
+                            trace!("{} >> heartbeat", addr);
+                        }
+                        Err(e) => {
+                            info!("control recv closed on port {}: {}", port, e);
+                            CTL_CONNS.get().unwrap().remove(port);
+                            let _ = msg_sender_recv.send(None);
+                            shutdown_recv.cancel();
+                            break;
+                        }
+                    }
+                }
             }
         }
+        // Dropping the receiver (with the sender) fully closes the TCP so the
+        // client observes the disconnect.
     });
 
-    // send msg to client
+    // Send messages to client
+    let shutdown_send = shutdown.clone();
     tokio::spawn(async move {
-        // init tcp stream pool
         let pool_size = G_CFG.get().unwrap().pool_size as usize;
         for _ in 0..pool_size {
+            if shutdown_send.is_cancelled() {
+                break;
+            }
             if let Err(e) = frame_sender.send(&Msg::Connect(port, None)).await {
                 warn!("send msg failed:{}", e);
                 break;
             }
         }
 
-        while let Some(msg) = msg_recv.recv().await {
-            let Some(msg) = msg else {
-                info!("send msg loop exit:{}", port);
-                break;
-            };
-
-            if let Err(e) = frame_sender.send(&msg).await {
-                warn!("send msg loop exit:{},err:{}", port, e);
-                break;
+        loop {
+            tokio::select! {
+                _ = shutdown_send.cancelled() => break,
+                msg = msg_recv.recv() => {
+                    match msg {
+                        Some(Some(msg)) => {
+                            if let Err(e) = frame_sender.send(&msg).await {
+                                warn!("send msg loop exit:{},err:{}", port, e);
+                                break;
+                            }
+                        }
+                        Some(None) | None => {
+                            info!("send msg loop exit:{}", port);
+                            break;
+                        }
+                    }
+                }
             }
         }
-        is_exit_clone.store(true, Ordering::Relaxed);
+        shutdown_send.cancel();
+        // Drop frame_sender here → with recv half, TCP closes toward client.
     });
 
-    let msg_sender_clone = msg_sender.clone();
-
-    //Heartbeat packet is sent every 15 seconds
+    // Server → client heartbeat
+    let msg_sender_hb = msg_sender.clone();
+    let shutdown_hb = shutdown.clone();
     tokio::spawn(async move {
         loop {
-            sleep(Duration::from_secs(15)).await;
-            if let Err(e) = msg_sender_clone.send(Some(Msg::Heartbeat)) {
-                info!("send heartbeat loop exit:{} err:{}", port, e);
-                break;
+            tokio::select! {
+                _ = shutdown_hb.cancelled() => break,
+                _ = sleep(HEARTBEAT_INTERVAL_SERVER) => {
+                    if msg_sender_hb.send(Some(Msg::Heartbeat)).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Kick stale control links that stop sending heartbeats.
+    let msg_sender_wd = msg_sender.clone();
+    let shutdown_wd = shutdown.clone();
+    let last_hb = last_client_hb.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = shutdown_wd.cancelled() => break,
+                _ = sleep(Duration::from_secs(5)) => {
+                    let elapsed = last_hb.lock().unwrap().elapsed();
+                    if elapsed > hb_timeout {
+                        warn!(
+                            "heartbeat timeout on port {} ({:.0}s > {}s), kicking",
+                            port,
+                            elapsed.as_secs_f64(),
+                            hb_timeout.as_secs()
+                        );
+                        CTL_CONNS.get().unwrap().remove(port);
+                        let _ = msg_sender_wd.send(None);
+                        shutdown_wd.cancel();
+                        break;
+                    }
+                }
             }
         }
     });
 
     loop {
-        // if not existing,exit immediately
         let exist = CTL_CONNS.get().unwrap().contain(port);
 
-        if !exist || msg_sender.is_closed() {
+        if !exist || msg_sender.is_closed() || shutdown.is_cancelled() {
             let _ = msg_sender.send(None);
+            shutdown.cancel();
             break;
         }
 

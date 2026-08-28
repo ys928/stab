@@ -27,6 +27,16 @@ pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long the server waits to pair a public client with a local work connection.
 pub const PAIR_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How long either side waits without a peer heartbeat before treating the
+/// control channel as dead (default; server may override via config).
+pub const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Server → client heartbeat interval.
+pub const HEARTBEAT_INTERVAL_SERVER: Duration = Duration::from_secs(15);
+
+/// Client → server heartbeat interval.
+pub const HEARTBEAT_INTERVAL_CLIENT: Duration = Duration::from_secs(3);
+
 /// Messages exchanged between the Local and the server
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Msg {
