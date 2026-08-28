@@ -16,6 +16,7 @@
 - 支持 Web 管理页手动断开连接
 - 支持同时暴露多个本地端口
 - 断线自动重连（可配置）
+- 本机 IPC API：可被其它程序零配置拉起并动态下发配置
 
 ### 1. 安装
 
@@ -86,7 +87,39 @@ stab local --link 127.0.0.1:8000=server.com:7878
 stab local -c 7777 --link 8000=server.com
 ```
 
-### 4. 示例
+### 4. 嵌入其它程序（本机 IPC API）
+
+宿主进程可零配置启动客户端，再通过本机命名管道（Windows）或 Unix Domain Socket 动态控制全部客户端行为，不占用 TCP 端口：
+
+```bash
+stab local --api
+# 可选：--api-path <路径>  --api-token <令牌>
+```
+
+启动并完成监听后，stdout 会打印：
+
+```text
+STAB_API=\\.\pipe\stab-<pid>
+STAB_API_TOKEN=<token>
+```
+
+协议：每帧为 `u32 小端长度 + UTF-8 JSON`。请求需携带 `token`。常用方法：
+
+| method | 说明 |
+|--------|------|
+| `ping` | 探活 |
+| `get_status` | 运行时配置与 link 列表 |
+| `set_config` | 更新 `secret` / `control_port` / `retry` / `retry_interval`（改 secret 或端口会重启全部隧道） |
+| `add_link` | 新增隧道，`params`: `{"local":"127.0.0.1:8000","remote":"server.com:0"}` 或 `{"link":"8000=server.com"}` |
+| `remove_link` | `{"link_id":"..."}` |
+| `list_links` / `clear_links` | 列出 / 清空 |
+| `shutdown` | 退出进程 |
+
+伪代码流程：`spawn(stab local --api)` → 读 stdout 解析 `STAB_API` / `STAB_API_TOKEN` → 连接管道 → `set_config` / `add_link` → … → `shutdown`。
+
+也可同时带上初始隧道：`stab local --api -l 8000=server.com`。
+
+### 5. 示例
 
 在 `server.com` 上：
 
@@ -108,7 +141,7 @@ stab local -l 8000=server.com
 
 即可通过 `server.com:1024` 访问本地服务。
 
-### 5. 密钥
+### 6. 密钥
 
 防止滥用可设置共享密钥（两端一致；明文会经 SHA-256 哈希后比对）：
 
@@ -117,7 +150,7 @@ stab server -s test
 stab local -l 8000=your.server.com -s test
 ```
 
-### 6. Web 管理页密钥
+### 7. Web 管理页密钥
 
 仅能通过配置文件设置。设置后，管理页 API 需在页面中输入密钥才能查看/断开连接：
 
@@ -128,7 +161,7 @@ web_key = "your-web-password"
 
 未设置 `web_key` 时，管理页不设鉴权。
 
-### 7. Toml 配置（推荐）
+### 8. Toml 配置（推荐）
 
 命令行参数会覆盖配置文件中的同名项。
 
@@ -180,7 +213,7 @@ stab -f local.toml
 
 > `retry` / `retry_interval` / `web_key` 仅支持配置文件，无对应 CLI 参数。
 
-### 8. 命令行参数一览
+### 9. 命令行参数一览
 
 | 参数 | 说明 | 默认 | 适用 |
 |------|------|------|------|
@@ -191,9 +224,12 @@ stab -f local.toml
 | `--log <1-5>` | 日志等级 | `5` | 通用 |
 | `--log-path <PATH>` | 日志目录 | `logs` | 通用 |
 | `-l, --link <LINK>` | 一条隧道映射 | — | Local |
+| `--api` | 启用本机 IPC 控制 API | 关 | Local |
+| `--api-path <PATH>` | IPC 路径（命名管道 / sock） | 按 pid 生成 | Local |
+| `--api-token <TOKEN>` | IPC 鉴权令牌 | 随机 uuid | Local |
 | `-w, --web-port <PORT>` | Web 管理端口 | `3400` | Server |
 | `-p, --port-range <A-B>` | 数据端口范围 | `1024-65535` | Server |
-| `--pool-size <N>` | 连接池大小 | `8` | Server |
+| `--pool-size <N>` | 连接池大小 | `0` | Server |
 
 查看内置帮助：
 

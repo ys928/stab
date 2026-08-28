@@ -11,6 +11,12 @@ release notes.
 
 ## Unreleased
 
+### Added
+- Local client IPC control API (`stab local --api`): Windows named pipe /
+  Unix domain socket, length-prefixed JSON RPC for dynamic config and
+  full link lifecycle control without taking a TCP port. Stdout announces
+  `STAB_API` and `STAB_API_TOKEN` after the endpoint is listening.
+
 ### Fixed
 - Link traffic stayed at 0 for long-lived tunnels such as SSH: stats now
   increase while data is flowing, and already-copied bytes are kept if the

@@ -16,6 +16,7 @@ Main features:
 - Web dashboard to inspect and disconnect sessions
 - Multiple local ports at once
 - Automatic reconnect on disconnect (configurable)
+- Local IPC API for zero-config embedding and dynamic control
 
 Performance comparison with [bore](https://github.com/ekzhang/bore):
 
@@ -96,7 +97,39 @@ If the server uses a non-default control port, match it on the client:
 stab local -c 7777 --link 8000=server.com
 ```
 
-### 4. Example
+### 4. Embed in another app (local IPC API)
+
+A host process can start the client with no tunnel config, then control all client behavior over a Windows named pipe or Unix domain socket (no TCP port):
+
+```bash
+stab local --api
+# optional: --api-path <path>  --api-token <token>
+```
+
+After the endpoint is listening, stdout prints:
+
+```text
+STAB_API=\\.\pipe\stab-<pid>
+STAB_API_TOKEN=<token>
+```
+
+Protocol: each frame is `u32 little-endian length + UTF-8 JSON`. Every request must include `token`. Methods:
+
+| method | purpose |
+|--------|---------|
+| `ping` | liveness |
+| `get_status` | runtime config + link list |
+| `set_config` | update `secret` / `control_port` / `retry` / `retry_interval` (changing secret or port restarts all tunnels) |
+| `add_link` | start a tunnel; `params`: `{"local":"127.0.0.1:8000","remote":"server.com:0"}` or `{"link":"8000=server.com"}` |
+| `remove_link` | `{"link_id":"..."}` |
+| `list_links` / `clear_links` | list / clear |
+| `shutdown` | exit the process |
+
+Flow: `spawn(stab local --api)` → parse `STAB_API` / `STAB_API_TOKEN` from stdout → connect → `set_config` / `add_link` → … → `shutdown`.
+
+You can also seed an initial tunnel: `stab local --api -l 8000=server.com`.
+
+### 5. Example
 
 On `server.com`:
 
@@ -118,7 +151,7 @@ On success you should see something like:
 
 Then open `server.com:1024` to reach the local service.
 
-### 5. Secret
+### 6. Secret
 
 To reduce abuse, set a shared secret on both sides (plaintext is hashed with SHA-256 before comparison):
 
@@ -127,7 +160,7 @@ stab server -s test
 stab local -l 8000=your.server.com -s test
 ```
 
-### 6. Web dashboard key
+### 7. Web dashboard key
 
 Configurable via TOML only. When set, the dashboard API requires the key (entered in the page) to list or disconnect sessions:
 
@@ -138,7 +171,7 @@ web_key = "your-web-password"
 
 If `web_key` is omitted, the dashboard has no auth.
 
-### 7. Toml configuration (recommended)
+### 8. Toml configuration (recommended)
 
 CLI flags override the same options from the config file.
 
@@ -190,7 +223,7 @@ stab -f local.toml
 
 > `retry`, `retry_interval`, and `web_key` are config-file only (no CLI flags).
 
-### 8. CLI reference
+### 9. CLI reference
 
 | Flag | Description | Default | Mode |
 |------|-------------|---------|------|
@@ -201,9 +234,12 @@ stab -f local.toml
 | `--log <1-5>` | Log level | `5` | Both |
 | `--log-path <PATH>` | Log directory | `logs` | Both |
 | `-l, --link <LINK>` | One tunnel mapping | — | Local |
+| `--api` | Enable local IPC control API | off | Local |
+| `--api-path <PATH>` | IPC path (named pipe / sock) | derived from pid | Local |
+| `--api-token <TOKEN>` | IPC auth token | random uuid | Local |
 | `-w, --web-port <PORT>` | Web dashboard port | `3400` | Server |
 | `-p, --port-range <A-B>` | Data port range | `1024-65535` | Server |
-| `--pool-size <N>` | Connection pool size | `8` | Server |
+| `--pool-size <N>` | Connection pool size | `0` | Server |
 
 Built-in help:
 

@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 use tracing::error;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use uuid::Uuid;
 
 /// global configuration
 pub static G_CFG: OnceLock<StabConfig> = OnceLock::new();
@@ -49,6 +50,12 @@ pub struct StabConfig {
     pub retry: i32,
     /// local reconnect interval in seconds
     pub retry_interval: u64,
+    /// enable local IPC control API
+    pub api: bool,
+    /// optional IPC path (named pipe / unix socket)
+    pub api_path: Option<String>,
+    /// IPC auth token (set when `api` is true)
+    pub api_token: Option<String>,
 }
 
 /// the command line arguments
@@ -95,6 +102,18 @@ pub struct StabArgs {
     /// prebuild this many idle work connections (0 = on-demand, recommended)
     #[clap(long, value_name = "pool size")]
     pub pool_size: Option<u16>,
+
+    /// enable local IPC API for dynamic control (named pipe / unix socket)
+    #[clap(long)]
+    pub api: bool,
+
+    /// IPC listen path (default: pipe/sock derived from pid)
+    #[clap(long, value_name = "path")]
+    pub api_path: Option<String>,
+
+    /// IPC auth token (default: random uuid)
+    #[clap(long, value_name = "token")]
+    pub api_token: Option<String>,
 }
 /// the run mode
 #[derive(Copy, Clone, Debug, ValueEnum, Deserialize, PartialEq)]
@@ -186,10 +205,14 @@ fn default_config() -> StabConfig {
         pool_size: 0,
         retry: -1,
         retry_interval: 5,
+        api: false,
+        api_path: None,
+        api_token: None,
     }
 }
 
-fn hash_secret(secret: impl AsRef<[u8]>) -> String {
+/// Hash a plaintext secret the same way CLI/`--secret` does.
+pub fn hash_secret(secret: impl AsRef<[u8]>) -> String {
     format!("{:x}", Sha256::new().chain_update(secret).finalize())
 }
 
@@ -235,7 +258,13 @@ pub fn init_config() {
         stab_config.web_port = w;
     }
 
-    if stab_config.mode == Mode::Local && stab_config.links.is_empty() {
+    if args.api {
+        stab_config.api = true;
+        stab_config.api_path = args.api_path;
+        stab_config.api_token = Some(args.api_token.unwrap_or_else(|| Uuid::new_v4().to_string()));
+    }
+
+    if stab_config.mode == Mode::Local && stab_config.links.is_empty() && !stab_config.api {
         panic!("No provide links");
     }
 
@@ -387,7 +416,8 @@ fn cmd_parse_link(raw_link: &str) -> Result<Link> {
     parse_link(raw_link, None)
 }
 
-fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link> {
+/// Parse a link string (`80=host` or `host:80=host:port`).
+pub fn parse_link(raw_link: &str, to: Option<&str>) -> Result<Link> {
     let err_msg = anyhow!("parse link failed,format: 80=stab.com or localhost:80=stab.com:8989");
     let mut link = Link::default();
 

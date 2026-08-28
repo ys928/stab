@@ -1,11 +1,14 @@
 //! the local module code
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::{
     net::TcpStream,
-    task::JoinHandle,
+    sync::oneshot,
     time::{sleep, timeout},
 };
 use tracing::{error, info, trace, trace_span, warn, Instrument};
@@ -13,54 +16,116 @@ use uuid::Uuid;
 
 use crate::{
     config::{Link, G_CFG},
+    runtime::{
+        set_last_error, set_status, ClientRuntime, LinkManager, LinkRunArgs, LinkStatus,
+    },
     share::{proxy, proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT},
 };
 
 /// run local
 pub async fn run() {
-    let links = &G_CFG.get().unwrap().links;
-    let port = G_CFG.get().unwrap().port;
-    let mut joins: Vec<JoinHandle<()>> = Vec::new();
-    for link in links {
-        let join = tokio::spawn(
+    let cfg = G_CFG.get().unwrap();
+    let runtime = ClientRuntime::from_cfg(cfg);
+    let runner = Arc::new(|args: LinkRunArgs| {
+        tokio::spawn(
             async move {
-                run_link_with_retry(link.clone(), port).await;
+                run_link_task(args).await;
             }
             .instrument(trace_span!("conn", id = Uuid::new_v4().to_string())),
-        );
-        joins.push(join);
+        )
+    });
+    let manager = LinkManager::new(runtime.clone(), runner);
+
+    if cfg.api {
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let api_runtime = runtime.clone();
+        let api_manager = manager.clone();
+        let token = cfg
+            .api_token
+            .clone()
+            .expect("api_token must be set when --api");
+        let path = cfg.api_path.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                crate::api::run(api_runtime, api_manager, token, path, shutdown_tx).await
+            {
+                error!("api server exited: {}", e);
+            }
+        });
+
+        for link in &cfg.links {
+            manager.add(link.clone());
+        }
+
+        let _ = shutdown_rx.await;
+        manager.clear().await;
+    } else {
+        for link in &cfg.links {
+            manager.add(link.clone());
+        }
+        manager.join_all().await;
     }
-    for join in joins {
-        let _ = join.await.map_err(|e| error!("{}", e));
-    }
+}
+
+/// Entry point for a managed link task (used by [`LinkManager`]).
+pub async fn run_link_task(args: LinkRunArgs) {
+    run_link_with_retry(
+        args.link,
+        args.runtime,
+        args.cancel,
+        args.status,
+        args.last_error,
+    )
+    .await;
 }
 
 /// Keep reconnecting according to retry settings.
 ///
 /// `retry = -1` means retry forever; `retry = 0` means never reconnect.
-async fn run_link_with_retry(link: Arc<Link>, port: u16) {
-    let cfg = G_CFG.get().unwrap();
-    let max_retry = cfg.retry;
-    let interval = cfg.retry_interval;
+async fn run_link_with_retry(
+    link: Arc<Link>,
+    runtime: Arc<ClientRuntime>,
+    cancel: tokio_util::sync::CancellationToken,
+    status: Arc<Mutex<LinkStatus>>,
+    last_error: Arc<Mutex<Option<String>>>,
+) {
     let mut attempt: i32 = 0;
 
     loop {
-        match create_link(link.clone(), port).await {
+        if cancel.is_cancelled() {
+            set_status(&status, LinkStatus::Stopped);
+            break;
+        }
+
+        set_status(&status, LinkStatus::Connecting);
+        match create_link(link.clone(), runtime.clone(), cancel.clone(), &status).await {
             Ok(()) => {
                 warn!("{:?}: link closed", link);
+                set_last_error(&last_error, None);
             }
             Err(e) => {
                 error!("{:?}:{}", link, e);
+                set_last_error(&last_error, Some(e.to_string()));
             }
         }
 
+        if cancel.is_cancelled() {
+            set_status(&status, LinkStatus::Stopped);
+            break;
+        }
+
+        let max_retry = runtime.retry().await;
+        let interval = runtime.retry_interval().await;
+
         if max_retry == 0 {
+            set_status(&status, LinkStatus::Stopped);
             break;
         }
 
         attempt = attempt.saturating_add(1);
         if max_retry > 0 && attempt > max_retry {
             error!("{:?}: exceeded retry limit ({})", link, max_retry);
+            set_status(&status, LinkStatus::Stopped);
             break;
         }
 
@@ -70,63 +135,94 @@ async fn run_link_with_retry(link: Arc<Link>, port: u16) {
             format!("attempt {attempt}/{max_retry}")
         };
         warn!("{:?}: reconnecting in {}s ({})", link, interval, label);
-        sleep(Duration::from_secs(interval)).await;
+        set_status(&status, LinkStatus::Retrying);
+
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                set_status(&status, LinkStatus::Stopped);
+                break;
+            }
+            _ = sleep(Duration::from_secs(interval)) => {}
+        }
     }
 }
 
 /// begin a connect
-async fn create_link(link: Arc<Link>, port: u16) -> Result<()> {
+async fn create_link(
+    link: Arc<Link>,
+    runtime: Arc<ClientRuntime>,
+    cancel: tokio_util::sync::CancellationToken,
+    status: &Mutex<LinkStatus>,
+) -> Result<()> {
+    let port = runtime.control_port().await;
     let stream = connect_with_timeout(&link.remote.host, port).await?;
 
     let mut frame_stream = FrameStream::new(stream);
 
-    let _ = init_port(&mut frame_stream, &link).await?;
+    let _ = init_port(&mut frame_stream, &link, &runtime).await?;
+    set_status(status, LinkStatus::Up);
 
     let (mut frame_sender, mut frame_receiver) = frame_stream.split();
 
+    let hb_cancel = cancel.clone();
     tokio::spawn(async move {
         loop {
-            sleep(Duration::from_secs(3)).await;
-            if let Err(e) = frame_sender.send(&Msg::Heartbeat).await {
-                error!("{}", e);
-                break;
+            tokio::select! {
+                _ = hb_cancel.cancelled() => break,
+                _ = sleep(Duration::from_secs(3)) => {
+                    if let Err(e) = frame_sender.send(&Msg::Heartbeat).await {
+                        error!("{}", e);
+                        break;
+                    }
+                }
             }
         }
     });
 
     loop {
-        let msg = frame_receiver.recv().await;
-        let Ok(msg) = msg else {
-            bail!("{:?}", msg.unwrap_err());
-        };
-
-        match msg {
-            Msg::InitPort(_, _) => info!("unexpected init"),
-            Msg::Heartbeat => trace!("server >> heartbeat"),
-            Msg::Start => info!("unexpected start on control link"),
-            Msg::Error(e) => {
-                return Err(anyhow!("{}", e));
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                bail!("cancelled");
             }
-            Msg::Connect(port, _) => {
-                let link = link.clone();
-                tokio::spawn(async move {
-                    info!("new connection");
-                    match handle_proxy_connection(port, &link).await {
-                        Ok(_) => info!("connection exited"),
-                        Err(err) => warn!("connection exited with error {}", err),
+            msg = frame_receiver.recv() => {
+                let Ok(msg) = msg else {
+                    bail!("{:?}", msg.unwrap_err());
+                };
+
+                match msg {
+                    Msg::InitPort(_, _) => info!("unexpected init"),
+                    Msg::Heartbeat => trace!("server >> heartbeat"),
+                    Msg::Start => info!("unexpected start on control link"),
+                    Msg::Error(e) => {
+                        return Err(anyhow!("{}", e));
                     }
-                });
+                    Msg::Connect(port, _) => {
+                        let link = link.clone();
+                        let runtime = runtime.clone();
+                        tokio::spawn(async move {
+                            info!("new connection");
+                            match handle_proxy_connection(port, &link, &runtime).await {
+                                Ok(_) => info!("connection exited"),
+                                Err(err) => warn!("connection exited with error {}", err),
+                            }
+                        });
+                    }
+                }
             }
         }
     }
 }
 
 /// send and recv InitPort message with server
-async fn init_port(frame_stream: &mut FrameStream, link: &Arc<Link>) -> Result<()> {
-    let secret = &G_CFG.get().unwrap().secret;
+async fn init_port(
+    frame_stream: &mut FrameStream,
+    link: &Arc<Link>,
+    runtime: &ClientRuntime,
+) -> Result<()> {
+    let secret = runtime.secret().await;
 
     frame_stream
-        .send(&Msg::InitPort(link.remote.port, secret.clone()))
+        .send(&Msg::InitPort(link.remote.port, secret))
         .await?;
     let msg = frame_stream.recv_timeout().await?;
     match msg {
@@ -151,15 +247,20 @@ async fn connect_with_timeout(addr: &str, port: u16) -> Result<TcpStream> {
 }
 
 /// deal connection from server proxy port
-async fn handle_proxy_connection(port: u16, link: &Link) -> Result<()> {
-    let stream = connect_with_timeout(&link.remote.host, G_CFG.get().unwrap().port).await?;
+async fn handle_proxy_connection(
+    port: u16,
+    link: &Link,
+    runtime: &ClientRuntime,
+) -> Result<()> {
+    let control_port = runtime.control_port().await;
+    let stream = connect_with_timeout(&link.remote.host, control_port).await?;
     let _ = stream.set_nodelay(true);
     let mut frame_stream = FrameStream::new(stream);
 
-    let secret = &G_CFG.get().unwrap().secret;
+    let secret = runtime.secret().await;
 
     frame_stream
-        .send(&Msg::Connect(port, secret.clone()))
+        .send(&Msg::Connect(port, secret))
         .await?;
 
     // Wait until the server pairs a real client. Connecting to the local
