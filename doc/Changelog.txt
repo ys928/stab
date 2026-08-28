@@ -11,6 +11,8 @@ release notes.
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-28
+
 ### Added
 - Local client IPC control API (`stab local --api`): Windows named pipe /
   Unix domain socket, length-prefixed JSON RPC for dynamic config and
