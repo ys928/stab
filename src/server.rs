@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::{
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering},
         Arc, OnceLock,
     },
     time::Duration,
@@ -14,11 +14,11 @@ use tokio::sync::{
     oneshot,
 };
 
-use crate::share::{proxy_with_prepend, FrameStream, Msg, NETWORK_TIMEOUT, PAIR_TIMEOUT};
+use crate::share::{proxy_with_stats, FrameStream, Msg, NETWORK_TIMEOUT, PAIR_TIMEOUT};
 use crate::{config::G_CFG, tcp_pool::TcpPool};
 use crate::{control::CtlConns};
 use chrono::Local;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::{
     net::{TcpListener, TcpStream},
     time::{sleep, timeout},
@@ -27,8 +27,39 @@ use tracing::{debug, debug_span, error, info, trace, warn, Instrument};
 use uuid::Uuid;
 
 /// connection information
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Debug)]
 pub struct CtlConInfo {
+    /// server port
+    pub port: u16,
+    /// src address
+    pub src: String,
+    /// begin time
+    pub time: String,
+    /// upstream data size (tunnel → public client)
+    pub upstream: AtomicU64,
+    /// downstream data size (public client → tunnel)
+    pub downstream: AtomicU64,
+}
+
+impl CtlConInfo {
+    /// Snapshot counters for the web API.
+    pub fn snapshot(&self) -> CtlConView {
+        let upstream = self.upstream.load(Ordering::Relaxed);
+        let downstream = self.downstream.load(Ordering::Relaxed);
+        CtlConView {
+            port: self.port,
+            src: self.src.clone(),
+            time: self.time.clone(),
+            upstream,
+            downstream,
+            total: upstream + downstream,
+        }
+    }
+}
+
+/// JSON view of [`CtlConInfo`].
+#[derive(Debug, Serialize)]
+pub struct CtlConView {
     /// server port
     pub port: u16,
     /// src address
@@ -165,9 +196,8 @@ async fn init_port(
         port,
         src: addr.to_string(),
         time,
-        upstream: 0,
-        downstream: 0,
-        total: 0,
+        upstream: AtomicU64::new(0),
+        downstream: AtomicU64::new(0),
     };
     CTL_CONNS.get().unwrap().insert(port, ctl);
     Ok(listener)
@@ -320,8 +350,14 @@ async fn pair_and_proxy(
 
 async fn finish_proxy(port: u16, client: TcpStream, frame_stream: FrameStream) -> Result<()> {
     let (proxy_stream, head) = frame_stream.into_tcp_stream();
-    let (down, up) = proxy_with_prepend(client, proxy_stream, &head).await?;
-    CTL_CONNS.get().unwrap().add_data(port, up, down);
+    let info = CTL_CONNS.get().unwrap().get(port);
+    let (down, up) = match info.as_ref() {
+        Some(info) => (Some(&info.downstream), Some(&info.upstream)),
+        None => (None, None),
+    };
+    // Count while copying so long-lived sessions (SSH) show traffic before close,
+    // and so a TCP reset still leaves already-forwarded bytes in the totals.
+    proxy_with_stats(client, proxy_stream, &head, down, up).await?;
     Ok(())
 }
 

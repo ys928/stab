@@ -1,8 +1,14 @@
 //! give some generic code
 
-use std::time::Duration;
+use std::{
+    io::{self, IoSlice},
+    pin::Pin,
+    sync::atomic::{AtomicU64, Ordering},
+    task::{Context, Poll},
+    time::Duration,
+};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Context as _, Result};
 use futures::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream},
@@ -10,7 +16,7 @@ use futures::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{copy_bidirectional, AsyncWriteExt},
+    io::{AsyncWrite, AsyncWriteExt},
     net::TcpStream,
     time::timeout,
 };
@@ -135,9 +141,8 @@ impl FrameReceiver {
 }
 
 /// Copy data mutually between two Tcpstreams.
-pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<(u64, u64)> {
-    let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
-    Ok((s1, s2))
+pub async fn proxy(stream1: TcpStream, stream2: TcpStream) -> Result<(u64, u64)> {
+    proxy_with_stats(stream1, stream2, &[], None, None).await
 }
 
 /// Like [`proxy`], but first writes `prepend` to `stream1`.
@@ -145,15 +150,120 @@ pub async fn proxy(mut stream1: TcpStream, mut stream2: TcpStream) -> Result<(u6
 /// `prepend` is data already read from `stream2` (codec leftover) that must
 /// still be delivered to the peer on `stream1`.
 pub async fn proxy_with_prepend(
+    stream1: TcpStream,
+    stream2: TcpStream,
+    prepend: &[u8],
+) -> Result<(u64, u64)> {
+    proxy_with_stats(stream1, stream2, prepend, None, None).await
+}
+
+/// Like [`proxy_with_prepend`], incrementing `down`/`up` as bytes are forwarded.
+///
+/// `down` counts `stream1 → stream2` (public client toward the tunnel).
+/// `up` counts `stream2 → stream1` (tunnel toward the public client).
+/// Counters are updated while the copy runs, including if it later errors.
+pub async fn proxy_with_stats(
     mut stream1: TcpStream,
     mut stream2: TcpStream,
     prepend: &[u8],
+    down: Option<&AtomicU64>,
+    up: Option<&AtomicU64>,
 ) -> Result<(u64, u64)> {
     let mut extra = 0u64;
     if !prepend.is_empty() {
         stream1.write_all(prepend).await?;
         extra = prepend.len() as u64;
+        if let Some(up) = up {
+            up.fetch_add(extra, Ordering::Relaxed);
+        }
     }
-    let (s1, s2) = copy_bidirectional(&mut stream1, &mut stream2).await?;
+    let (s1, s2) = copy_bidirectional_counted(&mut stream1, &mut stream2, down, up).await?;
     Ok((s1, s2 + extra))
+}
+
+/// Writer that adds successfully written bytes to an optional live counter.
+struct CountedWriter<'a, W> {
+    inner: W,
+    counter: Option<&'a AtomicU64>,
+}
+
+impl<'a, W> CountedWriter<'a, W> {
+    fn add(&self, n: usize) {
+        if n > 0 {
+            if let Some(counter) = self.counter {
+                counter.fetch_add(n as u64, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+impl<'a, W: AsyncWrite + Unpin> AsyncWrite for CountedWriter<'a, W> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let n = match Pin::new(&mut self.inner).poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => n,
+            other => return other,
+        };
+        self.add(n);
+        Poll::Ready(Ok(n))
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        let n = match Pin::new(&mut self.inner).poll_write_vectored(cx, bufs) {
+            Poll::Ready(Ok(n)) => n,
+            other => return other,
+        };
+        self.add(n);
+        Poll::Ready(Ok(n))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+}
+
+async fn copy_bidirectional_counted(
+    a: &mut TcpStream,
+    b: &mut TcpStream,
+    a_to_b: Option<&AtomicU64>,
+    b_to_a: Option<&AtomicU64>,
+) -> io::Result<(u64, u64)> {
+    let (mut ra, wa) = a.split();
+    let (mut rb, wb) = b.split();
+    let mut wb = CountedWriter {
+        inner: wb,
+        counter: a_to_b,
+    };
+    let mut wa = CountedWriter {
+        inner: wa,
+        counter: b_to_a,
+    };
+
+    let a_to_b_fut = async {
+        let n = tokio::io::copy(&mut ra, &mut wb).await?;
+        wb.shutdown().await?;
+        Ok(n)
+    };
+    let b_to_a_fut = async {
+        let n = tokio::io::copy(&mut rb, &mut wa).await?;
+        wa.shutdown().await?;
+        Ok(n)
+    };
+
+    tokio::try_join!(a_to_b_fut, b_to_a_fut)
 }

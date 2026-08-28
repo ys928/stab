@@ -13,7 +13,7 @@ use tracing::{error, info};
 
 use crate::{
     config::{hash_key, G_CFG},
-    server::{CtlConInfo, CTL_CONNS},
+    server::{CtlConView, CTL_CONNS},
 };
 
 /// run the web server
@@ -76,20 +76,16 @@ async fn root() -> Html<String> {
 }
 
 /// get all connections
-async fn get_connects() -> Json<Vec<CtlConInfo>> {
-    let conn = CTL_CONNS.get().unwrap().view();
-    let mut ret = Vec::new();
-    for con in conn {
-        ret.push(CtlConInfo {
-            port: con.port,
-            src: con.src.clone(),
-            time: con.time.clone(),
-            upstream: con.upstream,
-            downstream: con.downstream,
-            total: con.total,
-        });
-    }
-    Json(ret)
+async fn get_connects() -> Json<Vec<CtlConView>> {
+    Json(
+        CTL_CONNS
+            .get()
+            .unwrap()
+            .view()
+            .iter()
+            .map(|c| c.snapshot())
+            .collect(),
+    )
 }
 
 /// delete a connection

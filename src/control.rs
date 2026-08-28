@@ -39,17 +39,6 @@ impl CtlConns {
         let _ = map.remove(&port);
     }
 
-    /// add traffic counters
-    pub fn add_data(&self, port: u16, up_stream: u64, down_stream: u64) {
-        let mut map = self.map.lock().unwrap();
-        if let Some(data) = map.get_mut(&port) {
-            let info = Arc::make_mut(data);
-            info.upstream += up_stream;
-            info.downstream += down_stream;
-            info.total += up_stream + down_stream;
-        }
-    }
-
     /// whether the port exists
     pub fn contain(&self, port: u16) -> bool {
         let map = self.map.lock().unwrap();

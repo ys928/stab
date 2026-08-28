@@ -9,6 +9,13 @@ without the leading "v", e.g. tag v0.3.2 → heading "## 0.3.2"), then push the
 tag from the main branch. GitHub Actions will publish that section as the
 release notes.
 
+## Unreleased
+
+### Fixed
+- Link traffic stayed at 0 for long-lived tunnels such as SSH: stats now
+  increase while data is flowing, and already-copied bytes are kept if the
+  session ends with a TCP reset instead of a clean shutdown.
+
 ## 0.3.4 - 2026-08-15
 
 ### Fixed
