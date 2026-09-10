@@ -15,8 +15,8 @@ use clap::{Parser, ValueEnum};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use tracing::error;
 use tracing::level_filters::LevelFilter;
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer};
 use uuid::Uuid;
 
@@ -369,6 +369,56 @@ pub fn init_log() {
         .with(file_layer)
         .with(console_layer)
         .init();
+}
+
+/// Start the daily cleanup task for log files older than seven days.
+pub fn spawn_log_cleanup() {
+    let log_path = G_CFG.get().unwrap().log_path.clone();
+
+    tokio::spawn(async move {
+        loop {
+            cleanup_old_logs(&log_path);
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+        }
+    });
+}
+
+fn cleanup_old_logs(log_path: &str) {
+    let max_age = std::time::Duration::from_secs(7 * 24 * 60 * 60);
+    let Ok(entries) = std::fs::read_dir(log_path) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(date) = name.strip_prefix("stab.log.") else {
+            continue;
+        };
+        if date.len() != 10
+            || date.as_bytes()[4] != b'-'
+            || date.as_bytes()[7] != b'-'
+            || !date
+                .bytes()
+                .enumerate()
+                .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+        {
+            continue;
+        }
+
+        let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) else {
+            continue;
+        };
+        if modified.elapsed().map(|age| age > max_age).unwrap_or(false) {
+            if let Err(error) = std::fs::remove_file(&path) {
+                warn!("remove expired log {} failed: {}", path.display(), error);
+            } else {
+                info!("removed expired log {}", path.display());
+            }
+        }
+    }
 }
 
 /// get the log level from the config

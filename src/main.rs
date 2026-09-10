@@ -19,6 +19,7 @@ pub mod web;
 async fn main() {
     config::init_config();
     config::init_log();
+    config::spawn_log_cleanup();
     match G_CFG.get().unwrap().mode {
         config::Mode::Local => local::run().await,
         config::Mode::Server => {
